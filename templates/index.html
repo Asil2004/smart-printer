@@ -11,6 +11,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- SweetAlert2 (Zamonaviy alert va modallar) -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- PDF.js (PDF sahifalarini bir lahzada aniqlash) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 
   <script>
     tailwind.config = {
@@ -361,15 +364,29 @@
       promptContent.classList.add('hidden');
       fileInfoBox.classList.remove('hidden');
 
-      // Sahifalar sonini tezkor aniqlash
-      if (ext === 'pdf') {
+      // 1. Agar PDF bo'lsa - Mozilla PDF.js orqali brauzerda darhol sanash
+      if (ext === 'pdf' && window.pdfjsLib) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          detectedPages = Math.max(1, pdf.numPages || 1);
+          filePagesTxt.textContent = `${detectedPages} ta sahifa`;
+          updatePricing();
+          return;
+        } catch (pdfErr) {
+          console.warn('PDF.js xatosi, server orqali tekshiriladi:', pdfErr);
+        }
+      }
+
+      // 2. Agar DOCX bo'lsa yoki PDF.js o'qiy olmasa
+      if (ext === 'pdf' || ext === 'docx') {
         const formData = new FormData();
         formData.append('file', file);
         try {
           const res = await fetch('/api/inspect-file', { method: 'POST', body: formData });
           const data = await res.json();
-          if (data.success) {
-            detectedPages = data.page_count;
+          if (data.success && data.page_count) {
+            detectedPages = Math.max(1, data.page_count);
             filePagesTxt.textContent = `${detectedPages} ta sahifa`;
           } else {
             detectedPages = 1;

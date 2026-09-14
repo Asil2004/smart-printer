@@ -186,16 +186,30 @@ async function handleSelectedFile(file) {
   promptContent.classList.add("hidden");
   fileInfoBox.classList.remove("hidden");
 
-  // Agar backend ulangan bo'lsa va PDF bo'lsa sahifalar sonini aniqlash
+  // 1. Agar PDF bo'lsa - Mozilla PDF.js orqali brauzerning o'zida bir zumda (instant) sahifalarni sanash
+  if (ext === "pdf" && window.pdfjsLib) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      detectedPages = Math.max(1, pdf.numPages || 1);
+      filePagesTxt.textContent = `${detectedPages} ta sahifa`;
+      updatePricing();
+      return;
+    } catch (pdfErr) {
+      console.warn("PDF.js tahlil xatosi, server API orqali tekshirilmoqda:", pdfErr);
+    }
+  }
+
+  // 2. Agar DOCX bo'lsa yoki PDF server orqali tekshirilsa
   const apiUrl = AppConfig.getApiUrl();
-  if (apiUrl && ext === "pdf") {
+  if (apiUrl && (ext === "pdf" || ext === "docx")) {
     const fd = new FormData();
     fd.append("file", file);
     try {
       const res = await fetch(`${apiUrl}/api/inspect-file`, { method: "POST", body: fd });
       const data = await res.json();
-      if (data.success) {
-        detectedPages = data.page_count;
+      if (data.success && data.page_count) {
+        detectedPages = Math.max(1, data.page_count);
         filePagesTxt.textContent = `${detectedPages} ta sahifa`;
       } else {
         detectedPages = 1;

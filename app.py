@@ -232,7 +232,22 @@ def inspect_file():
         elif ext in [".png", ".jpg", ".jpeg"]:
             page_count = 1
         elif ext == ".docx":
-            page_count = 1
+            import zipfile
+            import xml.etree.ElementTree as ET
+            try:
+                with zipfile.ZipFile(temp_path, "r") as docx_zip:
+                    if "docProps/app.xml" in docx_zip.namelist():
+                        app_xml = docx_zip.read("docProps/app.xml")
+                        root = ET.fromstring(app_xml)
+                        for elem in root.iter():
+                            if elem.tag.endswith("Pages"):
+                                page_count = int(elem.text)
+                                break
+            except Exception as e:
+                logger.warning(f"DOCX sahifalarini o'qishda xatolik: {e}")
+                page_count = 1
+    except Exception as err:
+        logger.error(f"Faylni tahlil qilishda xatolik: {err}")
     finally:
         temp_path.unlink(missing_ok=True)
 
