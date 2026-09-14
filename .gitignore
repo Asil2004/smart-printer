@@ -1,0 +1,21 @@
+# Python virtual muhiti
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Yuklangan foydalanuvchi fayllari (uploads)
+uploads/*
+!uploads/.gitkeep
+
+# Muhit va xavfsizlik fayllari
+.env
+.DS_Store
+Thumbs.db
+
+# IDE va muharrir fayllari
+.vscode/
+.idea/
+*.swp

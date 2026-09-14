@@ -1,0 +1,27 @@
+[Unit]
+Description=Smart Web-Printchi - Simsiz Chop Etish Portali
+After=network.target cups.service
+Wants=cups.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/smart-printchi
+Environment="PYTHONUNBUFFERED=1"
+Environment="SERVER_HOST=0.0.0.0"
+Environment="SERVER_PORT=5000"
+
+# Virtual environment ichidagi python bilan ishga tushirish
+ExecStart=/home/pi/smart-printchi/venv/bin/python app.py
+
+# Agar to'xtab qolsa avtomatik qayta ishga tushirish
+Restart=always
+RestartSec=3
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=web-printchi
+
+[Install]
+WantedBy=multi-user.target
