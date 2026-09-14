@@ -3,7 +3,7 @@
  */
 const AppConfig = {
   // Standart Backend API URL (Raspberry Pi Cloudflare Tunnel)
-  DEFAULT_API_URL: "https://yard-pub-chan-ottawa.trycloudflare.com",
+  DEFAULT_API_URL: "https://cdt-genius-foto-reviewed.trycloudflare.com",
 
   getApiUrl() {
     const saved = localStorage.getItem("PRINTCHI_API_URL");
