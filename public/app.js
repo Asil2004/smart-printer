@@ -77,36 +77,72 @@ async function checkBackendHealth() {
 // ----------------- SOZLAMALAR MODALI (SETTINGS) -----------------
 function openSettingsModal() {
   const currentUrl = AppConfig.getApiUrl();
+  const payCfg = AppConfig.getPaymentConfig();
 
   Swal.fire({
-    title: "Terminal Sozlamalari",
+    title: "Tizim va To‘lov Sozlamalari",
     html: `
       <div class="text-left text-xs text-slate-600 space-y-3">
-        <p>Raspberry Pi dagi Cloudflare Tunnel yoki Server API manzilini kiriting:</p>
-        <input id="swalApiUrlInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="Masalan: https://printchi-api.loca.lt yoki https://xxx.trycloudflare.com" value="${currentUrl}">
-        <p class="text-[11px] text-slate-400 leading-relaxed">
-          * Maslahat: Raspberry Pi da <code>cloudflared tunnel</code> yoki <code>ngrok</code> buyrug'i orqali bepul olingan HTTPS manzilini kiriting.
-        </p>
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">Raspberry Pi API Manzili:</label>
+          <input id="swalApiUrlInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="https://snazzy-chosen-lyricism.ngrok-free.dev" value="${currentUrl}">
+        </div>
+
+        <div class="pt-2 border-t border-slate-100">
+          <label class="font-bold text-slate-700 block mb-1">To‘lov Karta Raqami (Uzcard / Humo):</label>
+          <input id="swalCardNumberInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="8600 0000 0000 0000" value="${payCfg.cardNumber || ''}">
+        </div>
+
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">Karta Egasi Ism-Familiyasi:</label>
+          <input id="swalCardHolderInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="F.I.SH." value="${payCfg.cardHolder || ''}">
+        </div>
+
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">Click / Payme Telefon Raqami:</label>
+          <input id="swalPhoneInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="+998901234567" value="${payCfg.clickPhone || ''}">
+        </div>
       </div>
     `,
     showCancelButton: true,
     confirmButtonColor: "#2563eb",
     cancelButtonColor: "#64748b",
-    confirmButtonText: "Saqlash va Tekshirish",
+    confirmButtonText: "Saqlash",
     cancelButtonText: "Bekor qilish",
     preConfirm: () => {
-      const input = document.getElementById("swalApiUrlInput").value.trim();
-      return input;
+      return {
+        apiUrl: document.getElementById("swalApiUrlInput").value.trim(),
+        cardNumber: document.getElementById("swalCardNumberInput").value.trim(),
+        cardHolder: document.getElementById("swalCardHolderInput").value.trim(),
+        phone: document.getElementById("swalPhoneInput").value.trim()
+      };
     }
   }).then((result) => {
     if (result.isConfirmed) {
-      AppConfig.setApiUrl(result.value);
+      const data = result.value;
+      AppConfig.setApiUrl(data.apiUrl);
+      const updatedCfg = {
+        ...payCfg,
+        cardNumber: data.cardNumber || payCfg.cardNumber,
+        cardHolder: data.cardHolder || payCfg.cardHolder,
+        clickPhone: data.phone || payCfg.clickPhone,
+        paymePhone: data.phone || payCfg.paymePhone
+      };
+      AppConfig.setPaymentConfig(updatedCfg);
       checkBackendHealth();
+      Swal.fire({
+        icon: "success",
+        title: "Saqlandi!",
+        text: "Barcha sozlamalar muvaffaqiyatli yangilandi.",
+        timer: 1500,
+        showConfirmButton: false
+      });
     }
   });
 }
 
 settingsBtn.addEventListener("click", openSettingsModal);
+
 
 
 // ----------------- FAYL VA KALKULYATOR MANTIG'I -----------------
@@ -266,41 +302,142 @@ dropZone.addEventListener("drop", (e) => {
 });
 
 
-// ----------------- FORM YUBORISH (PRINT) -----------------
-printForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
+// ----------------- TO'LOV VA CHOP ETISH MANTIG'I -----------------
+const paymentModal = document.getElementById("paymentModal");
+const paymentModalCard = document.getElementById("paymentModalCard");
+const closePaymentModalBtn = document.getElementById("closePaymentModalBtn");
+const cancelPaymentBtn = document.getElementById("cancelPaymentBtn");
+const confirmPaymentBtn = document.getElementById("confirmPaymentBtn");
+const modalPayAmount = document.getElementById("modalPayAmount");
+const paymentOrderSummary = document.getElementById("paymentOrderSummary");
 
-  if (!fileInput.files.length) {
-    Swal.fire({
-      icon: "warning",
-      title: "Fayl tanlanmadi!",
-      text: "Iltimos, avval chop etilishi kerak bo'lgan hujjatni yuklang.",
-      confirmButtonColor: "#2563eb",
-      confirmButtonText: "Tushundim"
+const modalCardNumber = document.getElementById("modalCardNumber");
+const modalCardHolder = document.getElementById("modalCardHolder");
+const cardBankTxt = document.getElementById("cardBankTxt");
+const copyCardBtn = document.getElementById("copyCardBtn");
+const copyCardTxt = document.getElementById("copyCardTxt");
+
+const clickPayLink = document.getElementById("clickPayLink");
+const paymePayLink = document.getElementById("paymePayLink");
+
+const payTabBtns = document.querySelectorAll(".pay-tab-btn");
+const tabContents = {
+  card: document.getElementById("tabContentCard"),
+  click: document.getElementById("tabContentClick"),
+  payme: document.getElementById("tabContentPayme")
+};
+
+let currentSelectedPayTab = "card";
+
+// Tab almashtirish
+payTabBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const tabName = btn.dataset.tab;
+    currentSelectedPayTab = tabName;
+
+    payTabBtns.forEach((b) => {
+      b.classList.remove("active", "bg-white", "text-blue-700", "shadow-sm");
+      b.classList.add("text-slate-600");
     });
-    return;
+    btn.classList.add("active", "bg-white", "text-blue-700", "shadow-sm");
+    btn.classList.remove("text-slate-600");
+
+    Object.keys(tabContents).forEach((key) => {
+      if (tabContents[key]) {
+        if (key === tabName) {
+          tabContents[key].classList.remove("hidden");
+        } else {
+          tabContents[key].classList.add("hidden");
+        }
+      }
+    });
+  });
+});
+
+// Karta raqamidan nusxa olish
+if (copyCardBtn) {
+  copyCardBtn.addEventListener("click", async () => {
+    const payCfg = AppConfig.getPaymentConfig();
+    const rawCard = (payCfg.cardNumber || "").replace(/\s+/g, "");
+    try {
+      await navigator.clipboard.writeText(rawCard || "8600000000000000");
+      copyCardTxt.textContent = "Olingan!";
+      copyCardBtn.classList.add("bg-emerald-500", "text-white");
+      setTimeout(() => {
+        copyCardTxt.textContent = "Nusxa";
+        copyCardBtn.classList.remove("bg-emerald-500", "text-white");
+      }, 2000);
+    } catch (e) {
+      console.error("Nusxa olishda xatolik:", e);
+    }
+  });
+}
+
+function openPaymentModal() {
+  const payCfg = AppConfig.getPaymentConfig();
+  const totalPrice = parseInt(totalPriceTxt.textContent.replace(/\s+/g, "")) || 500;
+  const copies = copiesVal.value || 1;
+  const colorMode = document.querySelector('input[name="color_mode"]:checked').value === "color" ? "Rangli" : "Oq-qora";
+  const fileName = fileInput.files[0] ? fileInput.files[0].name : "Hujjat";
+
+  modalPayAmount.textContent = totalPrice.toLocaleString();
+  paymentOrderSummary.textContent = `${fileName} • ${detectedPages} sahifa • ${colorMode} • ${copies} nusxa`;
+
+  // Karta ma'lumotlarini yuklash
+  modalCardNumber.textContent = payCfg.cardNumber || "8600 •••• •••• ••••";
+  modalCardHolder.textContent = payCfg.cardHolder || "PRINT MARKAZ";
+  cardBankTxt.textContent = payCfg.cardBank || "UZCARD / HUMO";
+
+  // Click & Payme havolalarini shakllantirish
+  const cleanCard = (payCfg.cardNumber || "").replace(/[^0-9]/g, "");
+
+  // Click P2P / Deeplink
+  if (payCfg.clickServiceId && payCfg.clickMerchantId) {
+    clickPayLink.href = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}`;
+  } else if (cleanCard) {
+    clickPayLink.href = `https://my.click.uz/clickp2p/?card=${cleanCard}&amount=${totalPrice}`;
+  } else {
+    clickPayLink.href = `https://my.click.uz`;
   }
 
-  const apiUrl = AppConfig.getApiUrl();
-  if (!apiUrl) {
-    Swal.fire({
-      icon: "error",
-      title: "Terminal Ulanmagan!",
-      text: "Raspberry Pi terminalining API manzili o'rnatilmagan. Sozlamalar (⚙️) orqali manzilni kiriting.",
-      confirmButtonColor: "#2563eb",
-      confirmButtonText: "Sozlash"
-    }).then(openSettingsModal);
-    return;
+  // Payme Deeplink / P2P
+  if (payCfg.paymeMerchantId) {
+    const base64Order = btoa(`m=${payCfg.paymeMerchantId};a=${totalPrice * 100}`);
+    paymePayLink.href = `https://checkout.paycom.uz/${base64Order}`;
+  } else if (cleanCard) {
+    paymePayLink.href = `https://payme.uz/fallback/pay/?card=${cleanCard}&amount=${totalPrice * 100}`;
+  } else {
+    paymePayLink.href = `https://payme.uz`;
   }
+
+  // Modalni ochish
+  paymentModal.classList.remove("opacity-0", "pointer-events-none");
+  paymentModalCard.classList.remove("scale-95");
+  paymentModalCard.classList.add("scale-100");
+}
+
+function closePaymentModal() {
+  paymentModal.classList.add("opacity-0", "pointer-events-none");
+  paymentModalCard.classList.remove("scale-100");
+  paymentModalCard.classList.add("scale-95");
+}
+
+if (closePaymentModalBtn) closePaymentModalBtn.addEventListener("click", closePaymentModal);
+if (cancelPaymentBtn) cancelPaymentBtn.addEventListener("click", closePaymentModal);
+
+// Chop etish jarayonini yuborish
+async function executePrintJob(paymentInfo) {
+  const apiUrl = AppConfig.getApiUrl();
+  closePaymentModal();
 
   // Modal ko'rsatish
   Swal.fire({
     title: "Chop etilmoqda...",
     html: `
       <div class="space-y-3 py-2 text-center">
-        <div class="text-xs text-slate-500" id="swalStepText">Fayl serverga yuklanmoqda...</div>
+        <div class="text-xs text-slate-500" id="swalStepText">To‘lov qabul qilindi. Fayl serverga yuklanmoqda...</div>
         <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-          <div id="swalBar" class="bg-blue-600 h-full rounded-full transition-all duration-500" style="width: 30%"></div>
+          <div id="swalBar" class="bg-emerald-600 h-full rounded-full transition-all duration-500" style="width: 30%"></div>
         </div>
       </div>
     `,
@@ -313,6 +450,11 @@ printForm.addEventListener("submit", async (e) => {
   });
 
   const formData = new FormData(printForm);
+  if (paymentInfo) {
+    formData.append("payment_method", paymentInfo.method || "card");
+    formData.append("amount", paymentInfo.amount || "0");
+    formData.append("payment_status", "PAID");
+  }
 
   try {
     setTimeout(() => {
@@ -337,13 +479,14 @@ printForm.addEventListener("submit", async (e) => {
 
       Swal.fire({
         icon: "success",
-        title: "Muvaffaqiyatli!",
+        title: "Chop Etish Boshlandi!",
         html: `
           <div class="text-sm text-slate-600 space-y-2">
             <p>${result.message}</p>
-            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 text-left">
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 text-left space-y-1">
               <div><strong>Printer:</strong> ${result.printer}</div>
               <div><strong>Nusxalar soni:</strong> ${result.copies} ta</div>
+              <div><strong>To‘lov:</strong> <span class="text-emerald-600 font-bold">Qabul qilindi (${(paymentInfo ? paymentInfo.amount : 0).toLocaleString()} so‘m)</span></div>
             </div>
           </div>
         `,
@@ -374,8 +517,52 @@ printForm.addEventListener("submit", async (e) => {
       confirmButtonText: "Yopish"
     });
   }
+}
+
+// "To'lov Qildim" tugmasi
+if (confirmPaymentBtn) {
+  confirmPaymentBtn.addEventListener("click", () => {
+    const totalPrice = parseInt(totalPriceTxt.textContent.replace(/\s+/g, "")) || 500;
+    executePrintJob({
+      method: currentSelectedPayTab,
+      amount: totalPrice,
+      status: "PAID"
+    });
+  });
+}
+
+// ----------------- FORM YUBORISH (PRINT TUGMASI BOSILGANDA) -----------------
+printForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+
+  if (!fileInput.files.length) {
+    Swal.fire({
+      icon: "warning",
+      title: "Fayl tanlanmadi!",
+      text: "Iltimos, avval chop etilishi kerak bo'lgan hujjatni yuklang.",
+      confirmButtonColor: "#2563eb",
+      confirmButtonText: "Tushundim"
+    });
+    return;
+  }
+
+  const apiUrl = AppConfig.getApiUrl();
+  if (!apiUrl) {
+    Swal.fire({
+      icon: "error",
+      title: "Terminal Ulanmagan!",
+      text: "Raspberry Pi terminalining API manzili o'rnatilmagan. Sozlamalar (⚙️) orqali manzilni kiriting.",
+      confirmButtonColor: "#2563eb",
+      confirmButtonText: "Sozlash"
+    }).then(openSettingsModal);
+    return;
+  }
+
+  // To'lov darchasini ochish
+  openPaymentModal();
 });
 
 // Boshlang'ich tekshiruv va hisob
 updatePricing();
 checkBackendHealth();
+

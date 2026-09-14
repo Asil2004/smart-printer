@@ -341,6 +341,26 @@ def print_document():
     cmd.append(str(ready_file))
     logger.info(f"CUPS ijro buyrug'i: {' '.join(cmd)}")
 
+    # To'lov ma'lumotlari
+    payment_method = request.form.get("payment_method", "card")
+    amount = request.form.get("amount", "0")
+    payment_status = request.form.get("payment_status", "PAID")
+    logger.info(f"To'lov qabul qilindi: {amount} so'm | Usul: {payment_method} | Fayl: {clean_name}")
+
+    # Buyurtma tarixini saqlash
+    order_info = {
+        "id": file_id[:8],
+        "filename": clean_name,
+        "amount": amount,
+        "payment_method": payment_method,
+        "payment_status": payment_status,
+        "copies": copies,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    recent_orders.append(order_info)
+    if len(recent_orders) > 50:
+        recent_orders.pop(0)
+
     # Agar Linux / CUPS bo'lmasa (Simulyatsiya)
     if not shutil.which("lp"):
         logger.warning("CUPS 'lp' buyrug'i topilmadi. Simulyatsiya qilindi.")
@@ -350,6 +370,7 @@ def print_document():
             "message": "Hujjat printerga muvaffaqiyatli yuborildi! (Simulyatsiya rejimi)",
             "printer": default_printer or "Standart USB Printer",
             "copies": copies,
+            "order": order_info
         })
 
     # Haqiqiy CUPS ijrosi
@@ -364,6 +385,7 @@ def print_document():
             "cups_response": cups_output,
             "printer": default_printer or "USB Printer",
             "copies": copies,
+            "order": order_info
         })
     except subprocess.CalledProcessError as err:
         err_msg = err.stderr.strip() or err.stdout.strip() or "Noma'lum printer xatosi"
@@ -372,6 +394,56 @@ def print_document():
             "success": False,
             "message": f"Printer xatosi: {err_msg}"
         }), 500
+
+
+# ----------------- TO'LOV VA BUYURTMALAR TARIXI API -----------------
+recent_orders = []
+
+@app.route("/api/orders", methods=["GET"])
+def get_recent_orders():
+    """Admin uchun oxirgi to'lovlar va chop etilgan fayllar ro'yxati."""
+    return jsonify({
+        "success": True,
+        "orders": list(reversed(recent_orders))
+    })
+
+
+# Click / Payme Webhook integratsiyalari (Kelgusida Click Merchant ulanishi uchun)
+@app.route("/api/payments/click/prepare", methods=["POST"])
+def click_prepare():
+    click_trans_id = request.form.get("click_trans_id")
+    service_id = request.form.get("service_id")
+    merchant_trans_id = request.form.get("merchant_trans_id")
+    amount = request.form.get("amount")
+    action = request.form.get("action")
+    error = request.form.get("error", 0)
+
+    logger.info(f"Click Prepare so'rovi: trans={click_trans_id}, sum={amount}")
+    return jsonify({
+        "click_trans_id": click_trans_id,
+        "merchant_trans_id": merchant_trans_id,
+        "merchant_prepare_id": click_trans_id,
+        "error": 0,
+        "error_note": "Success"
+    })
+
+
+@app.route("/api/payments/click/complete", methods=["POST"])
+def click_complete():
+    click_trans_id = request.form.get("click_trans_id")
+    merchant_prepare_id = request.form.get("merchant_prepare_id")
+    merchant_trans_id = request.form.get("merchant_trans_id")
+    error = request.form.get("error", 0)
+
+    logger.info(f"Click Complete so'rovi: trans={click_trans_id}")
+    return jsonify({
+        "click_trans_id": click_trans_id,
+        "merchant_trans_id": merchant_trans_id,
+        "merchant_confirm_id": click_trans_id,
+        "error": 0,
+        "error_note": "Success"
+    })
+
 
 
 if __name__ == "__main__":
