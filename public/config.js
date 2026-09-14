@@ -2,8 +2,8 @@
  * Smart Web-Printchi - Netlify Konfiguratsiyasi
  */
 const AppConfig = {
-  // Standart Backend API URL
-  DEFAULT_API_URL: "https://facts-sherman-polls-exhibitions.trycloudflare.com",
+  // Standart Backend API URL (Raspberry Pi Cloudflare Tunnel)
+  DEFAULT_API_URL: "https://yard-pub-chan-ottawa.trycloudflare.com",
 
   getApiUrl() {
     const saved = localStorage.getItem("PRINTCHI_API_URL");
