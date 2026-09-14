@@ -2,8 +2,8 @@
  * Smart Web-Printchi - Netlify Konfiguratsiyasi
  */
 const AppConfig = {
-  // Standart Backend API URL (Raspberry Pi Cloudflare Tunnel)
-  DEFAULT_API_URL: "https://cdt-genius-foto-reviewed.trycloudflare.com",
+  // Doimiy bir umrlik Ngrok domeni
+  DEFAULT_API_URL: "https://snazzy-chosen-lyricism.ngrok-free.dev",
 
   getApiUrl() {
     const saved = localStorage.getItem("PRINTCHI_API_URL");

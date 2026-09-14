@@ -48,7 +48,10 @@ async function checkBackendHealth() {
       <span>Tekshirilmoqda...</span>
     `;
 
-    const res = await fetch(`${apiUrl}/api/health`, { method: "GET" });
+    const res = await fetch(`${apiUrl}/api/health`, {
+      method: "GET",
+      headers: { "ngrok-skip-browser-warning": "true" }
+    });
     const data = await res.json();
 
     if (data.status === "online") {
@@ -323,6 +326,7 @@ printForm.addEventListener("submit", async (e) => {
 
     const res = await fetch(`${apiUrl}/api/print`, {
       method: "POST",
+      headers: { "ngrok-skip-browser-warning": "true" },
       body: formData
     });
     const result = await res.json();
