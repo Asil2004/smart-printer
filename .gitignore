@@ -15,6 +15,9 @@ uploads/*
 .DS_Store
 Thumbs.db
 
+.venv/
+*.log
+
 # IDE va muharrir fayllari
 .vscode/
 .idea/
