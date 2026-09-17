@@ -7,9 +7,11 @@ o'zlashtirish) yaratadi va DOCX formatda saqlaydi.
 """
 
 import os
+import json
 import base64
 import logging
 import tempfile
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 
@@ -60,22 +62,6 @@ DOC_TYPES = {
 # So'z narxi (100 so'zdan oshgan har 100 so'z uchun)
 PRICE_PER_100_WORDS = 500
 FREE_WORDS_LIMIT    = 100
-
-# ──────────────────────────────────────────────────────────
-# Gemini API
-# ──────────────────────────────────────────────────────────
-def _get_client():
-    """google-genai klientini oladi."""
-    try:
-        from google import genai
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY muhit o'zgaruvchisi topilmadi!")
-        return genai.Client(api_key=api_key)
-    except ImportError:
-        raise RuntimeError(
-            "google-genai o'rnatilmagan! Buyruq: pip install google-genai"
-        )
 
 
 def _build_prompt(doc_type: str, recipient: str, content: str,
@@ -212,25 +198,71 @@ def calculate_price(doc_type: str, word_count: int, include_print: bool = True,
 
 
 # ──────────────────────────────────────────────────────────
+# Gemini REST API orqali to'g'ridan-to'g'ri chaqirish
+# (Katta SDK o'rnatish shart emas!)
+# ──────────────────────────────────────────────────────────
+def _call_gemini_rest(prompt: str, image_bytes: bytes = None, image_mime: str = "image/jpeg") -> str:
+    """Gemini REST API orqali matn generatsiya qiladi."""
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY topilmadi! Iltimos, .env faylga GEMINI_API_KEY ni kiriting.")
+
+    parts = []
+    if image_bytes:
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        parts.append({
+            "inlineData": {
+                "mimeType": image_mime,
+                "data": b64
+            }
+        })
+    parts.append({"text": prompt})
+
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 2048
+        }
+    }
+
+    # Modellarni tartib bilan tekshirish
+    models_to_try = [
+        ("v1beta", "gemini-3.6-flash"),
+        ("v1alpha", "gemini-3.8-flash"),
+        ("v1beta", "gemini-2.0-flash"),
+    ]
+
+    last_err = None
+    for ver, model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/{ver}/models/{model_name}:generateContent?key={api_key}"
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                candidates = data.get("candidates", [])
+                if candidates and "content" in candidates[0]:
+                    parts = candidates[0]["content"].get("parts", [])
+                    if parts and "text" in parts[0]:
+                        return parts[0]["text"].strip()
+        except Exception as e:
+            logger.warning(f"REST model {model_name} xatosi: {e}")
+            last_err = e
+
+    raise RuntimeError(f"Gemini API bilan bog'lanishda xatolik: {last_err}")
+
+
+# ──────────────────────────────────────────────────────────
 # Rasmdan matn olish (OCR via Gemini Vision)
 # ──────────────────────────────────────────────────────────
 def extract_text_from_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-    """
-    Gemini Vision yordamida rasmdan (qo'lda yozilgan yoki bosilgan) matnni chiqaradi.
-    """
-    client = _get_client()
-    from google.genai import types
-
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=[
-            types.Part.from_bytes(data=base64.b64decode(b64), mime_type=mime_type),
-            "Bu rasmdagi barcha matnni aniq o'qib yozing. Faqat matnni qaytaring, tushuntirish yozmang."
-        ],
-        config=types.GenerateContentConfig()
-    )
-    return response.text.strip()
+    """Gemini Vision yordamida rasmdan matnni chiqaradi."""
+    prompt = "Bu rasmdagi barcha matnni aniq o'qib yozing. Faqat matnni qaytaring, tushuntirish yozmang."
+    return _call_gemini_rest(prompt=prompt, image_bytes=image_bytes, image_mime=mime_type)
 
 
 # ──────────────────────────────────────────────────────────
@@ -241,19 +273,7 @@ def generate_document_text(doc_type: str, recipient: str, content: str,
                             organization: str = "",
                             image_bytes: bytes = None,
                             image_mime: str = "image/jpeg") -> dict:
-    """
-    Gemini API yordamida hujjat matnini yaratadi.
-
-    Returns:
-        {
-            "text": "...hujjat matni...",
-            "word_count": 250,
-            "doc_type": "ariza",
-            "price": {...}
-        }
-    """
-    client = _get_client()
-    from google.genai import types
+    """Gemini API yordamida hujjat matnini yaratadi."""
 
     # Agar rasm berilgan bo'lsa — avval OCR qilish
     if image_bytes:
@@ -262,7 +282,6 @@ def generate_document_text(doc_type: str, recipient: str, content: str,
         content   = extracted if extracted else content
         logger.info(f"Rasmdan olingan matn: {content[:100]}...")
 
-    # Prompt yaratish
     prompt = _build_prompt(
         doc_type=doc_type,
         recipient=recipient,
@@ -273,16 +292,7 @@ def generate_document_text(doc_type: str, recipient: str, content: str,
     )
 
     logger.info(f"Gemini API ga so'rov yuborilmoqda (doc_type={doc_type})...")
-    response = client.models.generate_content(
-        model="gemini-3.6-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.3,   # Rasmiy hujjat uchun past temperature
-            max_output_tokens=2048,
-        )
-    )
-
-    generated_text = response.text.strip()
+    generated_text = _call_gemini_rest(prompt=prompt)
     word_count     = len(generated_text.split())
 
     logger.info(f"Hujjat yaratildi: {word_count} so'z")
@@ -295,69 +305,11 @@ def generate_document_text(doc_type: str, recipient: str, content: str,
 
 
 # ──────────────────────────────────────────────────────────
-# DOCX yaratish
+# DOCX yaratish (python-docx bo'lsa docx, bo'lmasa matn fayl)
 # ──────────────────────────────────────────────────────────
 def create_docx(text: str, doc_type: str, author_name: str = "",
                 output_path: Path = None) -> Path:
-    """
-    Yaratilgan hujjat matnini Word (.docx) fayliga saqlaydi.
-    O'zbekiston standart hujjat formatlari: Times New Roman 12pt, A4, 2.5sm margin.
-    """
-    try:
-        from docx import Document
-        from docx.shared import Pt, Cm, RGBColor
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
-        from docx.oxml.ns import qn
-        from docx.oxml import OxmlElement
-    except ImportError:
-        raise RuntimeError("python-docx o'rnatilmagan! Buyruq: pip install python-docx")
-
-    doc = Document()
-
-    # ── Sahifa sozlamalari (A4) ──────────────────────────
-    section          = doc.sections[0]
-    section.page_width   = Cm(21)
-    section.page_height  = Cm(29.7)
-    section.top_margin    = Cm(2.5)
-    section.bottom_margin = Cm(2.5)
-    section.left_margin   = Cm(3.0)
-    section.right_margin  = Cm(1.5)
-
-    # ── Uslub (Style) ───────────────────────────────────
-    style = doc.styles["Normal"]
-    font  = style.font
-    font.name  = "Times New Roman"
-    font.size  = Pt(12)
-
-    # ── Matnni qatorlarga bo'lib yozish ─────────────────
-    paragraphs = text.split("\n")
-    for para_text in paragraphs:
-        stripped = para_text.strip()
-        if not stripped:
-            doc.add_paragraph("")
-            continue
-
-        para = doc.add_paragraph()
-        run  = para.add_run(stripped)
-        run.font.name = "Times New Roman"
-        run.font.size = Pt(12)
-
-        # Sarlavhalarni aniqlash (katta harf, qisqa)
-        if stripped.isupper() and len(stripped) < 50:
-            run.bold = True
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        elif stripped.startswith(("1.", "2.", "3.", "4.", "5.", "6.")):
-            run.bold = True
-            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        else:
-            para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-        # Satr oralig'i
-        para.paragraph_format.space_after  = Pt(0)
-        para.paragraph_format.space_before = Pt(0)
-        para.paragraph_format.line_spacing = Pt(18)  # 1.5 interval
-
-    # ── Faylni saqlash ───────────────────────────────────
+    """Yaratilgan hujjat matnini DOCX formatida saqlaydi."""
     if output_path is None:
         tmp = tempfile.NamedTemporaryFile(
             suffix=".docx", delete=False,
@@ -366,6 +318,56 @@ def create_docx(text: str, doc_type: str, author_name: str = "",
         output_path = Path(tmp.name)
         tmp.close()
 
-    doc.save(str(output_path))
-    logger.info(f"DOCX saqlandi: {output_path}")
+    try:
+        from docx import Document
+        from docx.shared import Pt, Cm
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        doc = Document()
+        section          = doc.sections[0]
+        section.page_width   = Cm(21)
+        section.page_height  = Cm(29.7)
+        section.top_margin    = Cm(2.5)
+        section.bottom_margin = Cm(2.5)
+        section.left_margin   = Cm(3.0)
+        section.right_margin  = Cm(1.5)
+
+        style = doc.styles["Normal"]
+        style.font.name = "Times New Roman"
+        style.font.size = Pt(12)
+
+        paragraphs = text.split("\n")
+        for para_text in paragraphs:
+            stripped = para_text.strip()
+            if not stripped:
+                doc.add_paragraph("")
+                continue
+
+            para = doc.add_paragraph()
+            run  = para.add_run(stripped)
+            run.font.name = "Times New Roman"
+            run.font.size = Pt(12)
+
+            if stripped.isupper() and len(stripped) < 50:
+                run.bold = True
+                para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            elif stripped.startswith(("1.", "2.", "3.", "4.", "5.", "6.")):
+                run.bold = True
+                para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            else:
+                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+            para.paragraph_format.space_after  = Pt(0)
+            para.paragraph_format.space_before = Pt(0)
+            para.paragraph_format.line_spacing = Pt(18)
+
+        doc.save(str(output_path))
+        logger.info(f"DOCX saqlandi: {output_path}")
+
+    except ImportError:
+        # python-docx yo'q bo'lsa matn sifatida saqlaymiz
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        logger.info(f"Matn fayl saqlandi: {output_path}")
+
     return output_path
