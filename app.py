@@ -72,8 +72,17 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "smart-web-printchi-secr
 
 # CORS ni barcha API larda faollashtirish
 if CORS:
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={r"/*": {"origins": "*"}})
     logger.info("Flask-CORS muvaffaqiyatli faollashtirildi!")
+
+
+@app.after_request
+def add_cors_headers(response):
+    """Barcha so'rovlar (Netlify, Ngrok, Local) uchun to'liq CORS ruxsatlarini ta'minlaydi."""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, ngrok-skip-browser-warning, X-Requested-With"
+    return response
 
 
 # ----------------- YORDAMCHI FUNKSIYALAR -----------------
