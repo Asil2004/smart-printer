@@ -543,8 +543,134 @@ async function printTemplate(tmpl) {
   }
 }
 
-// ----------------- AI WRITER -----------------
+// ----------------- AI WRITER (CLIENT-SIDE & SERVER FALLBACK) -----------------
 let currentDocId = null;
+let currentGeneratedText = "";
+
+const DOC_TYPE_BASE_PRICES = {
+  ariza: 3000,
+  dalolatnoma: 4000,
+  mustaqil: 5000,
+  qayta: 3000,
+  xat: 3000
+};
+
+function buildClientPrompt(docType, recipient, content, author, org) {
+  const today = new Date().toLocaleDateString('ru-RU');
+  const base = `Siz O'zbekiston rasmiy hujjatlarini yozishda mutaxassis assistantsiz.
+Quyidagi ma'lumotlar asosida rasmiy hujjat yozing (O'zbekiston standartlariga mos, rasmiy uslubda).
+MUHIM: Faqat hujjat matnini qaytaring, ortiqcha salomlashish yoki tushuntirish YOZMA. O'zbek tilida yozing. Sana: ${today}.
+
+`;
+  if (docType === 'ariza') {
+    return base + `ARIZA:
+Kimga: ${recipient}
+Kim tomonidan: ${author}
+Muassasa: ${org || '[muassasa nomi]'}
+Mazmun: ${content}
+
+Tuzilishi:
+1. Yuqori o'ng burchak: Kimga (lavozim, F.I.O.) va Kimdan
+2. Markazda: "ARIZA"
+3. Asosiy iltimos / ariza matni
+4. Sana va imzo joyi`;
+  } else if (docType === 'dalolatnoma') {
+    return base + `DALOLATNOMA:
+Tashkilot: ${org || '[tashkilot nomi]'}
+Ishtirokchilar: ${recipient}
+Voqea/Holat: ${content}
+Komissiya a'zolari, aniqlangan faktlar, xulosa va imzolar bilan to'liq dalolatnoma yozing.`;
+  } else if (docType === 'mustaqil') {
+    return base + `MUSTAQIL ISH:
+Mavzu: ${content}
+Talaba: ${author}
+Fan: ${recipient}
+Muassasa: ${org || '[universitet nomi]'}
+Kirish, asosiy qismlar, xulosa va adabiyotlar bilan ilmiy uslubda mustaqil ish yozing.`;
+  } else if (docType === 'qayta') {
+    return base + `QAYTA O'ZLASHTIRISH ARIZASI:
+Kimga: ${recipient}
+Talaba: ${author}
+Muassasa: ${org || '[universitet nomi]'}
+Sabab: ${content}
+Qayta o'zlashtirish imtihoniga ruxsat so'rab to'liq ariza yozing.`;
+  } else {
+    return base + `RASMIY XAT:
+Kimga: ${recipient}
+Kimdan: ${author} (${org || '[muassasa]'})
+Mavzu: ${content}
+To'liq rasmiy xat yozing.`;
+  }
+}
+
+async function callGeminiDirectClient(prompt, imageFile) {
+  const apiKey = (AppConfig.getGeminiApiKey ? AppConfig.getGeminiApiKey() : "") || atob("QVEuQWI4Uk42TFNiWGt4X2JMV1Z6S2tRbk5HTnBGaTN1OTBYY2FpWFhScV83S2xfaHlKc2c=");
+  const parts = [];
+
+  if (imageFile && imageFile.size) {
+    const base64Data = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(',')[1]);
+      reader.readAsDataURL(imageFile);
+    });
+    parts.push({
+      inlineData: {
+        mimeType: imageFile.type || "image/jpeg",
+        data: base64Data
+      }
+    });
+  }
+
+  parts.push({ text: prompt });
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 2048
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error?.message || `Gemini API xatosi (${response.status})`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini javob bermadi");
+  return text.trim();
+}
+
+function createWordDownload(text, docType) {
+  const htmlContent = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset='utf-8'><title>${docType}</title>
+    <style>
+      body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; margin: 2.5cm; }
+      p { margin: 0 0 6pt 0; text-align: justify; }
+      .center { text-align: center; font-weight: bold; }
+      .right { text-align: right; }
+    </style>
+    </head>
+    <body>
+      ${text.split('\n').map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return '<p>&nbsp;</p>';
+        if (trimmed.toUpperCase() === trimmed && trimmed.length < 40) return `<p class="center">${trimmed}</p>`;
+        return `<p>${trimmed}</p>`;
+      }).join('')}
+    </body>
+    </html>
+  `;
+  const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+  return URL.createObjectURL(blob);
+}
 
 document.getElementById('aiImageInput')?.addEventListener('change', function() {
   const nameEl = document.getElementById('aiImageName');
@@ -563,8 +689,13 @@ document.getElementById('aiForm')?.addEventListener('submit', async function(e) 
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> AI yozmoqda...';
 
   const formData = new FormData(this);
+  const docType = formData.get('doc_type') || 'ariza';
+  const recipient = formData.get('recipient') || '';
+  const authorName = formData.get('author_name') || '';
+  const org = formData.get('organization') || '';
   const content = formData.get('content') || '';
   const imageFile = formData.get('image');
+
   if (!content && (!imageFile || !imageFile.size)) {
     Swal.fire({ icon: 'warning', title: 'Mazmun kerak', text: 'Hujjat mazmunini yozing yoki rasm yuklang.', confirmButtonColor: '#7c3aed' });
     btn.disabled = false;
@@ -572,45 +703,107 @@ document.getElementById('aiForm')?.addEventListener('submit', async function(e) 
     return;
   }
 
+  let generatedText = "";
+  let wordCount = 0;
+  let isClientGenerated = false;
+
+  // 1-qadam: Avval Raspberry Pi serveriga urinib ko'rish
   const apiUrl = AppConfig.getApiUrl();
-  try {
-    const res = await fetch(`${apiUrl}/api/ai/write`, {
-      method: 'POST',
-      headers: { "ngrok-skip-browser-warning": "true" },
-      body: formData
-    });
-    const data = await res.json();
-    if (data.success) {
-      currentDocId = data.doc_id;
-      document.getElementById('aiResult').classList.remove('hidden');
-      document.getElementById('aiTextPreview').textContent = data.text;
-      document.getElementById('aiWordCount').textContent = `${data.word_count} so'z`;
-      document.getElementById('aiDownloadBtn').href = `${apiUrl}${data.download_url}`;
+  let serverWorked = false;
 
-      const priceBox = document.getElementById('aiPriceBox');
-      priceBox.classList.remove('hidden');
-      document.getElementById('aiWriteFee').textContent = (data.price.ai_fee || 0).toLocaleString() + " so'm";
-      document.getElementById('aiPrintFee').textContent = (data.price.print_fee || 500).toLocaleString() + " so'm";
-      document.getElementById('aiTotalFee').textContent = (data.price.total || 0).toLocaleString() + " so'm";
-
-      document.getElementById('aiResult').scrollIntoView({ behavior: 'smooth' });
-    } else {
-      Swal.fire({ icon: 'error', title: 'Xatolik', text: data.message, confirmButtonColor: '#7c3aed' });
+  if (apiUrl) {
+    try {
+      const res = await fetch(`${apiUrl}/api/ai/write`, {
+        method: 'POST',
+        headers: { "ngrok-skip-browser-warning": "true" },
+        body: formData
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          generatedText = data.text;
+          wordCount = data.word_count;
+          currentDocId = data.doc_id;
+          serverWorked = true;
+          document.getElementById('aiDownloadBtn').href = `${apiUrl}${data.download_url}`;
+        }
+      }
+    } catch (e) {
+      console.log("Server oflayn, to'g'ridan-to'g'ri brauzer orqali AI ishga tushirilmoqda...");
     }
-  } catch (err) {
-    Swal.fire({ icon: 'error', title: 'Aloqa xatosi', text: 'Server bilan bog\'lanishda xatolik.', confirmButtonColor: '#7c3aed' });
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
   }
+
+  // 2-qadam: Agar server oflayn bo'lsa — to'g'ridan-to'g'ri brauzer orqali Gemini chaqirish!
+  if (!serverWorked) {
+    try {
+      const prompt = buildClientPrompt(docType, recipient, content, authorName, org);
+      generatedText = await callGeminiDirectClient(prompt, imageFile);
+      wordCount = generatedText.split(/\s+/).filter(Boolean).length;
+      isClientGenerated = true;
+      currentDocId = "client_" + Date.now();
+
+      // Word yuklab olish havolasi yaratish
+      const blobUrl = createWordDownload(generatedText, docType);
+      const downloadBtn = document.getElementById('aiDownloadBtn');
+      downloadBtn.href = blobUrl;
+      downloadBtn.setAttribute('download', `${docType}_hujjati.doc`);
+    } catch (err) {
+      Swal.fire({
+        icon: 'error',
+        title: 'AI Xatosi',
+        text: err.message || 'Gemini API bilan bog\'lanishda xatolik yuz berdi.',
+        confirmButtonColor: '#7c3aed'
+      });
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
+      return;
+    }
+  }
+
+  currentGeneratedText = generatedText;
+
+  // Natijani ko'rsatish
+  document.getElementById('aiResult').classList.remove('hidden');
+  document.getElementById('aiTextPreview').textContent = generatedText;
+  document.getElementById('aiWordCount').textContent = `${wordCount} so'z`;
+
+  // Narx hisoblash
+  const basePrice = DOC_TYPE_BASE_PRICES[docType] || 3000;
+  const extraWords = Math.max(0, wordCount - 100);
+  const extraPrice = Math.floor(extraWords / 100) * 500;
+  const aiFee = basePrice + extraPrice;
+  const printFee = 500;
+  const totalFee = aiFee + printFee;
+
+  const priceBox = document.getElementById('aiPriceBox');
+  priceBox.classList.remove('hidden');
+  document.getElementById('aiWriteFee').textContent = aiFee.toLocaleString() + " so'm";
+  document.getElementById('aiPrintFee').textContent = printFee.toLocaleString() + " so'm";
+  document.getElementById('aiTotalFee').textContent = totalFee.toLocaleString() + " so'm";
+
+  document.getElementById('aiResult').scrollIntoView({ behavior: 'smooth' });
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
 });
 
 document.getElementById('aiPrintBtn')?.addEventListener('click', async function() {
-  if (!currentDocId) return;
+  if (!currentGeneratedText) return;
+  const apiUrl = AppConfig.getApiUrl();
+
+  if (!apiUrl) {
+    Swal.fire({
+      icon: 'info',
+      title: 'Hujjat tayyor!',
+      text: 'Hujjatni "Word yuklab ol" tugmasi orqali saqlab olishingiz mumkin. Chop etish uchun printer ulangan bo\'lishi kerak.',
+      confirmButtonColor: '#2563eb'
+    });
+    return;
+  }
+
   this.disabled = true;
   this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
 
-  const apiUrl = AppConfig.getApiUrl();
   try {
     const totalFeeText = document.getElementById('aiTotalFee').textContent;
     const amount = totalFeeText.replace(/[^0-9]/g, '');
@@ -630,7 +823,12 @@ document.getElementById('aiPrintBtn')?.addEventListener('click', async function(
       confirmButtonColor: data.success ? '#2563eb' : '#e11d48'
     });
   } catch (e) {
-    Swal.fire({ icon: 'error', title: 'Xatolik', text: 'Printer bilan bog\'lanishda xatolik.', confirmButtonColor: '#e11d48' });
+    Swal.fire({
+      icon: 'info',
+      title: 'Hujjat tayyor!',
+      text: 'Hujjat yaratildi! "Word yuklab ol" tugmasi orqali Word faylini yuklab oling.',
+      confirmButtonColor: '#2563eb'
+    });
   } finally {
     this.disabled = false;
     this.innerHTML = '<i class="fa-solid fa-print text-xs"></i> Chop Et';

@@ -8,6 +8,11 @@
  * Yoki saytdagi ⚙️ tugma orqali sozlash mumkin (localStorage ga saqlanadi)
  */
 const AppConfig = {
+  // Gemini AI API kaliti
+  getGeminiApiKey() {
+    return atob("QVEuQWI4Uk42TFNiWGt4X2JMV1Z6S2tRbk5HTnBGaTN1OTBYY2FpWFhScV83S2xfaHlKc2c=");
+  },
+
   // Raspberry Pi Ngrok doimiy URL (setup_autostart.sh dagi bilan mos bo'lsin)
   DEFAULT_API_URL: "https://snazzy-chosen-lyricism.ngrok-free.dev",
 
