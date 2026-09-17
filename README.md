@@ -104,3 +104,44 @@ sudo systemctl daemon-reload
 sudo systemctl enable printchi.service
 sudo systemctl start printchi.service
 ```
+
+---
+
+## 🖨️ XP-58 IIL Termal Printer Sozlash
+
+XP-58 IIL — bu 58mm termal chek printer. CUPS orqali ulash uchun:
+
+### Avtomatik o'rnatish (Raspberry Pi da):
+```bash
+# Loyiha papkasiga o'ting:
+cd /home/pi/smart-printchi
+
+# O'rnatish skriptini ishga tushiring:
+sudo bash setup_xp58.sh
+```
+
+### Qo'lda CUPS sozlash:
+```bash
+# 1. Printer ulangandan so'ng USB qurilmasini topish:
+lsusb
+# Natija misol: ID 0416:5011 Winbond Electronics Corp.
+
+# 2. CUPS ga kirish:
+# http://<raspberry-pi-ip>:631
+# → Administration → Add Printer → USB Printers → XP-58
+
+# 3. Test chop etish:
+echo "XP-58 IIL test" | lp -d XP-58
+
+# 4. Printer nomini .env da sozlash:
+echo "PRINTER_NAME=XP-58" >> .env
+echo "DEFAULT_MEDIA=58x297mm" >> .env
+```
+
+### ESC/POS to'g'ridan-to'g'ri rejimi (.env):
+```bash
+PRINT_MODE=escpos
+ESCPOS_VENDOR_ID=0x0416
+ESCPOS_PRODUCT_ID=0x5011
+```
+> **Eslatma:** `PRINT_MODE=cups` — standart (tavsiya etiladi). `escpos` rejimi faqat rasm chop etishni qo'llab-quvvatlaydi.

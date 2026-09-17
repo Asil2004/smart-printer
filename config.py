@@ -26,10 +26,32 @@ POSSIBLE_LCD_ADDRESSES = [0x27, 0x3F]
 LCD_COLS = 16  # LCD1602 uchun 16, LCD2004 uchun 20
 LCD_ROWS = 2   # LCD1602 uchun 2, LCD2004 uchun 4
 
+# ──────────────────────────────────────────────────────────
+# XP-58 IIL Termal Printer Sozlamalari
+# ──────────────────────────────────────────────────────────
 # CUPS Printer sozlamalari
-# Agar printer nomi bo'sh qoldirilsa, tizimdagi standart (default) printer olinadi
-PRINTER_NAME = os.environ.get("PRINTER_NAME", "")
-DEFAULT_MEDIA = "A4"
+# Raspberry Pi da CUPS orqali qo'shilgan printer nomi (setup_xp58.sh bilan o'rnatiladi)
+# .env faylida: PRINTER_NAME=XP-58
+PRINTER_NAME = os.environ.get("PRINTER_NAME", "XP-58")
+
+# Termal lenta kengligi: 58mm (XP-58 IIL uchun standart)
+DEFAULT_MEDIA = os.environ.get("DEFAULT_MEDIA", "58x297mm")
+
+# Termal printer DPI (XP-58 IIL: 203 DPI)
+THERMAL_DPI = int(os.environ.get("THERMAL_DPI", 203))
+
+# 58mm kenglikda chop etiluvchi piksel eni: (58mm / 25.4) * 203 DPI ≈ 463 piksel
+# Lekin xavfsiz chegara: 384 piksel (ko'pchilik termal printer drayverlarida standart)
+THERMAL_WIDTH_PX = int(os.environ.get("THERMAL_WIDTH_PX", 384))
+
+# ESC/POS to'g'ridan-to'g'ri rejimi (CUPS ishlamasa, raw USB ga yuborish)
+# Qiymatlar: "cups" | "escpos"
+PRINT_MODE = os.environ.get("PRINT_MODE", "cups")
+
+# ESC/POS USB sozlamalari (PRINT_MODE=escpos bo'lganda ishlatiladi)
+# lsusb buyrug'i bilan aniqlash: Bus XXX Device YYY: ID XXXX:YYYY
+ESCPOS_VENDOR_ID  = int(os.environ.get("ESCPOS_VENDOR_ID",  "0x0416"), 16)  # Winbond/Xprinter
+ESCPOS_PRODUCT_ID = int(os.environ.get("ESCPOS_PRODUCT_ID", "0x5011"), 16)  # XP-58 IIL
 
 # Chop etishdan so'ng fayllarni tozalash (saqlash vaqti soniyalarda)
 AUTO_CLEANUP_SECONDS = 300  # 5 daqiqadan so'ng yuklangan faylni o'chirish

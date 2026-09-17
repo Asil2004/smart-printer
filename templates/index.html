@@ -74,6 +74,46 @@
       </div>
     </div>
 
+    <!-- Tab Navigatsiya -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-1.5 flex gap-1">
+      <button onclick="switchTab('print')" id="tab-print"
+        class="tab-btn flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all bg-blue-600 text-white shadow-sm">
+        <i class="fa-solid fa-print mr-1"></i>Chop Etish
+      </button>
+      <button onclick="switchTab('templates')" id="tab-templates"
+        class="tab-btn flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-500 hover:text-slate-700">
+        <i class="fa-solid fa-layer-group mr-1"></i>Shablonlar
+      </button>
+      <button onclick="switchTab('ai')" id="tab-ai"
+        class="tab-btn flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-slate-500 hover:text-slate-700">
+        <i class="fa-solid fa-wand-magic-sparkles mr-1"></i>AI Writer
+      </button>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════ -->
+    <!-- CHOP ETISH BO'LIMI -->
+    <!-- ══════════════════════════════════════════════════ -->
+    <div id="section-print">
+
+    <!-- Printerlar Holati Paneli -->
+    <div id="printerStatusPanel" class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Printerlar Holati</span>
+        <button onclick="loadPrinterStatus()" class="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
+          <i class="fa-solid fa-arrows-rotate text-[10px]"></i> Yangilash
+        </button>
+      </div>
+      <div id="printerStatusList" class="space-y-2">
+        <div class="text-xs text-slate-400 text-center py-2">Yuklanmoqda...</div>
+      </div>
+      <div id="routingHint" class="hidden mt-3 pt-3 border-t border-slate-100">
+        <p class="text-[11px] text-slate-500 flex items-center gap-1.5">
+          <i class="fa-solid fa-route text-blue-400"></i>
+          <span id="routingHintText"></span>
+        </p>
+      </div>
+    </div>
+
     <!-- Chop Etish Formasi -->
     <form id="printForm" class="space-y-4">
 
@@ -239,6 +279,301 @@
       </button>
 
     </form>
+    </div><!-- /section-print -->
+
+    <!-- ══════════════════════════════════════════════════ -->
+    <!-- SHABLONLAR BO'LIMI -->
+    <!-- ══════════════════════════════════════════════════ -->
+    <div id="section-templates" class="hidden space-y-3">
+
+      <!-- Header: filtrlar + admin qo'shish -->
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Tayyor Shablonlar</span>
+        <button onclick="openAdminUpload()"
+          class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-all">
+          <i class="fa-solid fa-plus text-[10px]"></i> Qo'shish
+        </button>
+      </div>
+
+      <!-- Kategoriya filtrlari -->
+      <div class="flex gap-1 flex-wrap">
+        <button onclick="filterTemplates('')" id="filter-all"
+          class="filter-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-blue-600 text-white">Barchasi</button>
+        <button onclick="filterTemplates('academic')" id="filter-academic"
+          class="filter-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-500 hover:bg-slate-100">Akademik</button>
+        <button onclick="filterTemplates('border')" id="filter-border"
+          class="filter-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-500 hover:bg-slate-100">Ramka</button>
+        <button onclick="filterTemplates('official')" id="filter-official"
+          class="filter-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-500 hover:bg-slate-100">Rasmiy</button>
+        <button onclick="filterTemplates('other')" id="filter-other"
+          class="filter-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-500 hover:bg-slate-100">Boshqa</button>
+      </div>
+
+      <div id="templateGrid" class="grid grid-cols-2 gap-3">
+        <div class="col-span-2 text-center text-xs text-slate-400 py-6">
+          <i class="fa-solid fa-spinner fa-spin text-lg mb-2 block"></i>Yuklanmoqda...
+        </div>
+      </div>
+
+      <!-- ── Admin: Shablon yuklash modali ── -->
+      <div id="adminUploadModal" class="hidden fixed inset-0 z-50 flex items-end">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeAdminUpload()"></div>
+        <div class="relative w-full max-w-md mx-auto bg-white rounded-t-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4"></div>
+          <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <i class="fa-solid fa-plus-circle text-emerald-500"></i> Yangi Shablon Qo'shish
+          </h3>
+
+          <form id="adminUploadForm" class="space-y-3">
+            <!-- Fayl -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">PDF yoki DOCX fayl *</label>
+              <div id="adminFileZone" class="relative border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-xl p-4 text-center cursor-pointer transition-all">
+                <input type="file" id="adminFileInput" name="file" accept=".pdf,.docx" required
+                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                <i class="fa-solid fa-cloud-arrow-up text-slate-300 text-xl mb-1"></i>
+                <p id="adminFileName" class="text-xs text-slate-400">PDF yoki DOCX tanlang</p>
+              </div>
+            </div>
+
+            <!-- Nom -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Shablon nomi *</label>
+              <input type="text" name="name" id="adminTmplName" required placeholder="Mustaqil Ish Yuzi"
+                class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+            </div>
+
+            <!-- Tavsif -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Tavsif</label>
+              <input type="text" name="description" placeholder="Qisqacha tavsif..."
+                class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+            </div>
+
+            <!-- Kategoriya va Narx -->
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Kategoriya</label>
+                <select name="category"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-400 bg-white">
+                  <option value="academic">Akademik</option>
+                  <option value="border">Ramka</option>
+                  <option value="official">Rasmiy</option>
+                  <option value="other">Boshqa</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Narx (so'm/bet)</label>
+                <input type="number" name="price_per_page" value="500" min="0"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
+              </div>
+            </div>
+
+            <!-- Rangli? -->
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" name="color" value="true" class="rounded accent-pink-500">
+              <span class="text-xs font-semibold text-slate-700">Rangli shablon (1500 so'm)</span>
+            </label>
+
+            <div class="flex gap-2 pt-2">
+              <button type="button" onclick="closeAdminUpload()"
+                class="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600">Bekor</button>
+              <button type="submit" id="adminUploadBtn"
+                class="flex-1 py-3 rounded-xl bg-emerald-500 text-white text-sm font-bold shadow-md shadow-emerald-500/30">
+                <i class="fa-solid fa-upload mr-1"></i>Yuklash
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Shablon ko'rish / chop etish modali -->
+      <div id="templateModal" class="hidden fixed inset-0 z-50 flex items-end">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" onclick="closeTemplateModal()"></div>
+        <div class="relative w-full max-w-md mx-auto bg-white rounded-t-3xl p-5 space-y-4 shadow-2xl">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto"></div>
+          <div class="flex items-start gap-3">
+            <div id="tmplModalIcon" class="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600 text-xl flex-shrink-0">
+              <i class="fa-solid fa-file"></i>
+            </div>
+            <div class="flex-1">
+              <h3 id="tmplModalName" class="font-bold text-slate-900 text-sm"></h3>
+              <p id="tmplModalDesc" class="text-xs text-slate-500 mt-0.5"></p>
+            </div>
+            <button id="tmplDeleteBtn" class="text-rose-400 hover:text-rose-600 transition-colors p-1" title="O'chirish">
+              <i class="fa-solid fa-trash text-xs"></i>
+            </button>
+          </div>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-3 flex justify-between text-xs">
+            <span class="text-slate-500">Narxi</span>
+            <span id="tmplModalPrice" class="font-bold text-blue-600"></span>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="closeTemplateModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600">Bekor</button>
+            <button id="tmplPrintBtn" class="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold shadow-md shadow-blue-500/30">
+              <i class="fa-solid fa-print mr-1"></i>Chop Etish
+            </button>
+          </div>
+        </div>
+      </div>
+    </div><!-- /section-templates -->
+
+    <!-- ══════════════════════════════════════════════════ -->
+    <!-- AI WRITER BO'LIMI -->
+    <!-- ══════════════════════════════════════════════════ -->
+    <div id="section-ai" class="hidden space-y-4">
+
+      <!-- AI Writer banner -->
+      <div class="bg-gradient-to-r from-violet-600 to-purple-600 rounded-2xl p-4 text-white shadow-lg">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+          </div>
+          <div>
+            <h2 class="text-sm font-bold">AI Hujjat Yozuvchi</h2>
+            <p class="text-xs text-purple-200">Gemini AI yordamida rasmiy hujjat yarating</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Writer Form -->
+      <form id="aiForm" class="space-y-4">
+
+        <!-- Hujjat turi -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Hujjat Turi</label>
+          <div id="docTypeGrid" class="grid grid-cols-2 gap-2">
+            <label class="cursor-pointer">
+              <input type="radio" name="doc_type" value="ariza" class="peer sr-only" checked>
+              <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-violet-600 peer-checked:bg-violet-50 peer-checked:text-violet-700 hover:border-slate-300">
+                <i class="fa-solid fa-file-signature text-sm mb-1 block"></i>
+                <span class="text-xs font-bold block">Ariza</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="doc_type" value="dalolatnoma" class="peer sr-only">
+              <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-violet-600 peer-checked:bg-violet-50 peer-checked:text-violet-700 hover:border-slate-300">
+                <i class="fa-solid fa-file-contract text-sm mb-1 block"></i>
+                <span class="text-xs font-bold block">Dalolatnoma</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="doc_type" value="mustaqil" class="peer sr-only">
+              <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-violet-600 peer-checked:bg-violet-50 peer-checked:text-violet-700 hover:border-slate-300">
+                <i class="fa-solid fa-graduation-cap text-sm mb-1 block"></i>
+                <span class="text-xs font-bold block">Mustaqil Ish</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="doc_type" value="qayta" class="peer sr-only">
+              <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-violet-600 peer-checked:bg-violet-50 peer-checked:text-violet-700 hover:border-slate-300">
+                <i class="fa-solid fa-rotate-right text-sm mb-1 block"></i>
+                <span class="text-xs font-bold block">Qayta O'zlashtirish</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="doc_type" value="xat" class="peer sr-only">
+              <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-violet-600 peer-checked:bg-violet-50 peer-checked:text-violet-700 hover:border-slate-300">
+                <i class="fa-solid fa-envelope-open-text text-sm mb-1 block"></i>
+                <span class="text-xs font-bold block">Rasmiy Xat</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Ma'lumotlar -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">Ma'lumotlar</label>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Kimga (Lavozim va Ism)</label>
+            <input type="text" name="recipient" id="ai-recipient" placeholder="Rektor janoblariga, Dekan..." required
+              class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Muallif (F.I.O.)</label>
+            <input type="text" name="author_name" id="ai-author" placeholder="Aliyev Ali Vali o'g'li"
+              class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Muassasa (ixtiyoriy)</label>
+            <input type="text" name="organization" id="ai-org" placeholder="Toshkent Davlat Texnika Universiteti..."
+              class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              Hujjat Mazmuni
+              <span class="text-[10px] text-slate-400 font-normal ml-1">yoki rasm tashlang</span>
+            </label>
+            <textarea name="content" id="ai-content" rows="4"
+              placeholder="Misol: 5 kunlik ta'til so'rayman, sababim — oilaviy vaziyat..."
+              class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 resize-none"></textarea>
+          </div>
+
+          <!-- Rasm yuklash -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Rasm (ixtiyoriy — qo'lda yozilgan matn)</label>
+            <div id="aiImageZone" class="relative border-2 border-dashed border-slate-200 hover:border-violet-400 rounded-xl p-4 text-center cursor-pointer transition-all">
+              <input type="file" name="image" id="aiImageInput" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+              <i class="fa-solid fa-camera text-slate-300 text-2xl mb-1"></i>
+              <p class="text-xs text-slate-400">Rasm tanlash <span class="text-violet-500 font-medium">yoki tashlang</span></p>
+              <p id="aiImageName" class="text-xs text-violet-600 font-medium mt-1 hidden"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Narx hisoblash -->
+        <div id="aiPriceBox" class="bg-violet-50 border border-violet-100 rounded-2xl p-4 hidden">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-600">AI yozish</span>
+            <span id="aiWriteFee" class="font-semibold text-slate-800"></span>
+          </div>
+          <div class="flex justify-between text-xs mb-2">
+            <span class="text-slate-600">Chop etish (1 bet)</span>
+            <span id="aiPrintFee" class="font-semibold text-slate-800"></span>
+          </div>
+          <div class="flex justify-between text-sm border-t border-violet-200 pt-2">
+            <span class="font-bold text-slate-800">Jami</span>
+            <span id="aiTotalFee" class="font-bold text-violet-700"></span>
+          </div>
+        </div>
+
+        <!-- AI tugmalari -->
+        <button type="submit" id="aiWriteBtn"
+          class="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm shadow-lg shadow-violet-500/30 flex items-center justify-center gap-2">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+          AI Hujjat Yozsin
+        </button>
+      </form>
+
+      <!-- AI Natija -->
+      <div id="aiResult" class="hidden bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+        <div class="flex items-center gap-2 text-emerald-600">
+          <i class="fa-solid fa-circle-check"></i>
+          <span class="text-sm font-bold">Hujjat tayyor!</span>
+          <span id="aiWordCount" class="ml-auto text-xs text-slate-400"></span>
+        </div>
+        <div id="aiTextPreview"
+          class="bg-slate-50 rounded-xl p-3 text-xs text-slate-700 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap border border-slate-100">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <a id="aiDownloadBtn" href="#" download
+            class="py-3 rounded-xl border border-violet-300 text-violet-700 font-bold text-sm text-center flex items-center justify-center gap-1">
+            <i class="fa-solid fa-download text-xs"></i> Word yuklab ol
+          </a>
+          <button id="aiPrintBtn"
+            class="py-3 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center justify-center gap-1 shadow-md shadow-blue-500/30">
+            <i class="fa-solid fa-print text-xs"></i> Chop Et
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /section-ai -->
+
   </main>
 
   <!-- Footer -->
@@ -536,7 +871,7 @@
         Swal.fire({
           icon: 'error',
           title: 'Aloqa xatosi',
-          text: 'Server bilan bog‘lanishda xatolik yuz berdi. Wi-Fi tarmog‘ini tekshiring.',
+          text: 'Server bilan bog\'lanishda xatolik yuz berdi. Wi-Fi tarmog\'ini tekshiring.',
           confirmButtonColor: '#e11d48',
           confirmButtonText: 'Yopish'
         });
@@ -545,6 +880,307 @@
 
     // Dastlabki hisob
     updatePricing();
+
+    // ── Tab Navigatsiya ──────────────────────────────────
+    function switchTab(tab) {
+      ['print','templates','ai'].forEach(t => {
+        const sec = document.getElementById(`section-${t}`);
+        const btn = document.getElementById(`tab-${t}`);
+        if (t === tab) {
+          sec.classList.remove('hidden');
+          btn.classList.add('bg-blue-600','text-white','shadow-sm');
+          btn.classList.remove('text-slate-500');
+        } else {
+          sec.classList.add('hidden');
+          btn.classList.remove('bg-blue-600','text-white','shadow-sm');
+          btn.classList.add('text-slate-500');
+        }
+      });
+      if (tab === 'templates') loadTemplates();
+    }
+
+    // ── Printer Holat Paneli ─────────────────────────────
+    const PRINTER_ICONS = {
+      thermal:  { icon: 'fa-receipt',   color: 'text-amber-500',  bg: 'bg-amber-50'  },
+      laser_bw: { icon: 'fa-print',     color: 'text-slate-600',  bg: 'bg-slate-50'  },
+      color:    { icon: 'fa-palette',   color: 'text-pink-500',   bg: 'bg-pink-50'   },
+    };
+
+    async function loadPrinterStatus() {
+      const list = document.getElementById('printerStatusList');
+      try {
+        const res  = await fetch('/api/printers');
+        const data = await res.json();
+        if (!data.success) throw new Error('API xatosi');
+        list.innerHTML = data.printers.map(p => {
+          const meta = PRINTER_ICONS[p.type] || { icon: 'fa-print', color: 'text-slate-400', bg: 'bg-slate-50' };
+          const dot  = p.connected
+            ? '<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse flex-shrink-0"></span>'
+            : '<span class="w-2 h-2 rounded-full bg-slate-300 inline-block flex-shrink-0"></span>';
+          const nameText = p.connected
+            ? `<span class="font-semibold text-slate-800">${p.cups_name || p.label}</span>`
+            : `<span class="text-slate-400">${p.label}</span>`;
+          const stateText = p.connected
+            ? '<span class="text-[10px] text-emerald-600 font-medium">Ulangan</span>'
+            : '<span class="text-[10px] text-slate-400">Ulanmagan</span>';
+          return `<div class="flex items-center gap-3 px-3 py-2 rounded-xl ${p.connected ? 'bg-emerald-50/60 border border-emerald-100' : 'bg-slate-50 border border-slate-100'}">
+            <div class="w-8 h-8 rounded-lg ${meta.bg} flex items-center justify-center flex-shrink-0">
+              <i class="fa-solid ${meta.icon} text-sm ${meta.color}"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs flex items-center gap-1.5">${dot} ${nameText}</div>
+              <div class="mt-0.5">${stateText}</div>
+            </div>
+          </div>`;
+        }).join('');
+        updateRoutingHint();
+      } catch (e) {
+        list.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">Printerlar aniqlanmadi</div>';
+      }
+    }
+
+    function updateRoutingHint() {
+      const colorMode = document.querySelector('input[name="color_mode"]:checked')?.value || 'gray';
+      const hintEl    = document.getElementById('routingHint');
+      const hintText  = document.getElementById('routingHintText');
+      const HINTS = { gray: 'Oq-qora → Canon lazer printerga yuboriladi', color: 'Rangli → Rangli printerga yuboriladi' };
+      hintText.textContent = HINTS[colorMode] || '';
+      hintEl.classList.remove('hidden');
+    }
+    document.querySelectorAll('input[name="color_mode"]').forEach(r => r.addEventListener('change', updateRoutingHint));
+    loadPrinterStatus();
+    setInterval(loadPrinterStatus, 30000);
+
+    // ── Shablonlar ───────────────────────────────────────
+    let allTemplates = [];
+    let selectedTemplate = null;
+
+    async function loadTemplates() {
+      if (allTemplates.length > 0) { renderTemplates(allTemplates); return; }
+      try {
+        const res  = await fetch('/api/templates');
+        const data = await res.json();
+        allTemplates = data.templates || [];
+        renderTemplates(allTemplates);
+      } catch(e) {
+        document.getElementById('templateGrid').innerHTML =
+          '<div class="col-span-2 text-center text-xs text-red-400 py-6">Shablonlar yuklanmadi</div>';
+      }
+    }
+
+    function renderTemplates(list) {
+      const grid = document.getElementById('templateGrid');
+      if (!list.length) {
+        grid.innerHTML = '<div class="col-span-2 text-center text-xs text-slate-400 py-6">Shablonlar topilmadi</div>';
+        return;
+      }
+      grid.innerHTML = list.map(t => `
+        <div onclick="openTemplateModal(${JSON.stringify(t).replace(/"/g,'&quot;')})"
+          class="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm cursor-pointer hover:border-blue-400 hover:shadow-md transition-all active:scale-95">
+          <div class="w-10 h-10 rounded-xl ${t.color ? 'bg-pink-50' : 'bg-blue-50'} flex items-center justify-center mb-2">
+            <i class="fa-solid fa-file-pdf text-xl ${t.color ? 'text-pink-500' : 'text-blue-500'}"></i>
+          </div>
+          <div class="text-xs font-bold text-slate-800 leading-tight mb-0.5">${t.name}</div>
+          <div class="text-[10px] text-slate-400 leading-tight mb-2 line-clamp-2">${t.description}</div>
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold text-blue-600">${t.price_per_page.toLocaleString()} so'm</span>
+            ${t.file_exists
+              ? '<span class="text-[10px] text-emerald-600 font-medium">✓ Mavjud</span>'
+              : '<span class="text-[10px] text-slate-400">Fayl yo\'q</span>'}
+          </div>
+        </div>`).join('');
+    }
+
+    function filterTemplates(cat) {
+      document.querySelectorAll('.filter-btn').forEach(b => {
+        b.classList.remove('bg-blue-600','text-white');
+        b.classList.add('text-slate-500');
+      });
+      const activeId = cat ? `filter-${cat}` : 'filter-all';
+      const activeBtn = document.getElementById(activeId);
+      if (activeBtn) { activeBtn.classList.add('bg-blue-600','text-white'); activeBtn.classList.remove('text-slate-500'); }
+      const filtered = cat ? allTemplates.filter(t => t.category === cat) : allTemplates;
+      renderTemplates(filtered);
+    }
+
+    function openTemplateModal(tmpl) {
+      selectedTemplate = tmpl;
+      document.getElementById('tmplModalName').textContent  = tmpl.name;
+      document.getElementById('tmplModalDesc').textContent  = tmpl.description;
+      document.getElementById('tmplModalPrice').textContent = `${tmpl.price_per_page.toLocaleString()} so'm/bet`;
+      document.getElementById('templateModal').classList.remove('hidden');
+      document.getElementById('tmplPrintBtn').onclick   = () => printTemplate(tmpl);
+      document.getElementById('tmplDeleteBtn').onclick  = () => deleteTemplate(tmpl);
+    }
+    function closeTemplateModal() {
+      document.getElementById('templateModal').classList.add('hidden');
+    }
+
+    async function deleteTemplate(tmpl) {
+      closeTemplateModal();
+      const confirmed = await Swal.fire({
+        icon:'warning', title:"O'chirishni tasdiqlang",
+        text:`"${tmpl.name}" shabloni o'chiriladi!`,
+        showCancelButton:true, confirmButtonColor:'#e11d48',
+        cancelButtonText:'Bekor', confirmButtonText:"Ha, o'chir"
+      });
+      if (!confirmed.isConfirmed) return;
+      try {
+        const res  = await fetch(`/api/admin/templates/delete/${tmpl.id}`, { method:'DELETE' });
+        const data = await res.json();
+        allTemplates = []; // Cache tozalash
+        loadTemplates();
+        Swal.fire({ icon: data.success?'success':'error', title: data.message,
+          timer:2000, showConfirmButton:false });
+      } catch(e) {
+        Swal.fire({ icon:'error', title:'Xatolik', text:'Server bilan bog\'lanishda xatolik' });
+      }
+    }
+
+    // ── Admin: shablon yuklash ───────────────────────────
+    function openAdminUpload() {
+      document.getElementById('adminUploadModal').classList.remove('hidden');
+    }
+    function closeAdminUpload() {
+      document.getElementById('adminUploadModal').classList.add('hidden');
+      document.getElementById('adminUploadForm').reset();
+      document.getElementById('adminFileName').textContent = 'PDF yoki DOCX tanlang';
+    }
+
+    document.getElementById('adminFileInput')?.addEventListener('change', function() {
+      const nameEl = document.getElementById('adminFileName');
+      if (this.files[0]) {
+        nameEl.textContent = '📎 ' + this.files[0].name;
+        nameEl.classList.add('text-emerald-600');
+        // Fayl nomini "Nom" maydoniga avtomatik yozish
+        const autoName = this.files[0].name.replace(/\.(pdf|docx)$/i,'').replace(/_/g,' ');
+        const nameInput = document.getElementById('adminTmplName');
+        if (!nameInput.value) nameInput.value = autoName;
+      }
+    });
+
+    document.getElementById('adminUploadForm')?.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById('adminUploadBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Yuklanmoqda...';
+
+      const formData = new FormData(this);
+      // checkbox fix
+      if (!formData.get('color')) formData.set('color','false');
+
+      try {
+        const res  = await fetch('/api/admin/templates/upload', { method:'POST', body: formData });
+        const data = await res.json();
+        if (data.success) {
+          closeAdminUpload();
+          allTemplates = []; // Cache tozalash
+          loadTemplates();
+          Swal.fire({ icon:'success', title: data.message,
+            timer:2500, showConfirmButton:false });
+        } else {
+          Swal.fire({ icon:'error', title:'Xatolik', text: data.message, confirmButtonColor:'#e11d48' });
+        }
+      } catch(err) {
+        Swal.fire({ icon:'error', title:'Aloqa xatosi', text:'Server bilan bog\'lanishda xatolik' });
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-upload mr-1"></i>Yuklash';
+      }
+    });
+
+    async function printTemplate(tmpl) {
+      if (!tmpl.file_exists) {
+        Swal.fire({ icon:'warning', title:'Fayl topilmadi',
+          text:`"${tmpl.file}" faylini templates_files/ papkasiga joylashtiring.`,
+          confirmButtonColor:'#e11d48' }); return;
+      }
+      closeTemplateModal();
+      Swal.fire({ title:'Chop etilmoqda...', allowOutsideClick:false, didOpen:()=>Swal.showLoading() });
+      try {
+        const res = await fetch('/api/templates/print', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ template_id: tmpl.id, copies:1, payment_method:'card', amount: tmpl.price_per_page })
+        });
+        const data = await res.json();
+        Swal.fire({ icon: data.success?'success':'error', title: data.success?'Chop etildi!':'Xatolik',
+          text: data.message, confirmButtonColor: data.success?'#2563eb':'#e11d48' });
+      } catch(e) {
+        Swal.fire({ icon:'error', title:'Xatolik', text:'Server bilan bog\'lanishda xatolik', confirmButtonColor:'#e11d48' });
+      }
+    }
+
+    // ── AI Writer ────────────────────────────────────────
+    let currentDocId = null;
+
+    document.getElementById('aiImageInput')?.addEventListener('change', function() {
+      const nameEl = document.getElementById('aiImageName');
+      if (this.files[0]) { nameEl.textContent = '📎 ' + this.files[0].name; nameEl.classList.remove('hidden'); }
+      else { nameEl.classList.add('hidden'); }
+    });
+
+    document.getElementById('aiForm')?.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const btn = document.getElementById('aiWriteBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI yozmoqda...';
+
+      const formData = new FormData(this);
+      const content = formData.get('content') || '';
+      const imageFile = formData.get('image');
+      if (!content && (!imageFile || !imageFile.size)) {
+        Swal.fire({ icon:'warning', title:'Mazmun kerak', text:'Hujjat mazmunini yozing yoki rasm yuklang.', confirmButtonColor:'#7c3aed' });
+        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin'; return;
+      }
+
+      try {
+        const res  = await fetch('/api/ai/write', { method:'POST', body: formData });
+        const data = await res.json();
+        if (data.success) {
+          currentDocId = data.doc_id;
+          document.getElementById('aiResult').classList.remove('hidden');
+          document.getElementById('aiTextPreview').textContent = data.text;
+          document.getElementById('aiWordCount').textContent = `${data.word_count} so'z`;
+          document.getElementById('aiDownloadBtn').href = data.download_url;
+
+          // Narx ko'rsatish
+          const priceBox = document.getElementById('aiPriceBox');
+          priceBox.classList.remove('hidden');
+          document.getElementById('aiWriteFee').textContent  = (data.price.ai_fee   || 0).toLocaleString() + ' so\'m';
+          document.getElementById('aiPrintFee').textContent  = (data.price.print_fee|| 500).toLocaleString() + ' so\'m';
+          document.getElementById('aiTotalFee').textContent  = (data.price.total    || 0).toLocaleString() + ' so\'m';
+
+          document.getElementById('aiResult').scrollIntoView({ behavior:'smooth' });
+        } else {
+          Swal.fire({ icon:'error', title:'Xatolik', text: data.message, confirmButtonColor:'#7c3aed' });
+        }
+      } catch(err) {
+        Swal.fire({ icon:'error', title:'Aloqa xatosi', text:'Server bilan bog\'lanishda xatolik.', confirmButtonColor:'#7c3aed' });
+      } finally {
+        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
+      }
+    });
+
+    document.getElementById('aiPrintBtn')?.addEventListener('click', async function() {
+      if (!currentDocId) return;
+      this.disabled = true; this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+      try {
+        const totalFeeText = document.getElementById('aiTotalFee').textContent;
+        const amount = totalFeeText.replace(/[^0-9]/g, '');
+        const res = await fetch(`/api/ai/print/${currentDocId}`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ color_mode:'gray', copies:1, amount })
+        });
+        const data = await res.json();
+        Swal.fire({ icon: data.success?'success':'error', title: data.success?'Chop etildi!':'Xatolik',
+          text: data.message, confirmButtonColor: data.success?'#2563eb':'#e11d48' });
+      } catch(e) {
+        Swal.fire({ icon:'error', title:'Xatolik', text:'Printer bilan bog\'lanishda xatolik.', confirmButtonColor:'#e11d48' });
+      } finally {
+        this.disabled = false; this.innerHTML = '<i class="fa-solid fa-print text-xs"></i> Chop Et';
+      }
+    });
+
   </script>
 </body>
 </html>

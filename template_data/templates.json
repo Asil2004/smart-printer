@@ -1,0 +1,113 @@
+[
+  {
+    "id": "mustaqil_yuzi",
+    "name": "Mustaqil Ish Yuzi",
+    "description": "Akademik mustaqil ish uchun standart muqova sahifasi",
+    "category": "academic",
+    "pages": 1,
+    "preview": "",
+    "file": "mustaqil_yuzi.docx",
+    "price_per_page": 500,
+    "color": false,
+    "tags": [
+      "mustaqil ish",
+      "muqova",
+      "akademik"
+    ]
+  },
+  {
+    "id": "laboratoriya_yuzi",
+    "name": "Laboratoriya Ishi Yuzi",
+    "description": "Laboratoriya ishi uchun standart muqova",
+    "category": "academic",
+    "pages": 1,
+    "preview": "",
+    "file": "laboratoriya_yuzi.docx",
+    "price_per_page": 500,
+    "color": false,
+    "tags": [
+      "laboratoriya",
+      "muqova",
+      "akademik"
+    ]
+  },
+  {
+    "id": "ariza_blank",
+    "name": "Ariza Blanki",
+    "description": "To'ldiriladigan bo'sh ariza blanki",
+    "category": "official",
+    "pages": 1,
+    "preview": "",
+    "file": "ariza_blank.docx",
+    "price_per_page": 500,
+    "color": false,
+    "tags": [
+      "ariza",
+      "blank",
+      "rasmiy"
+    ]
+  },
+  {
+    "id": "qayta_ozlashtirish",
+    "name": "Qayta O'zlashtirish",
+    "description": "Qayta o'zlashtirish imtihoni uchun ariza blanki",
+    "category": "academic",
+    "pages": 1,
+    "preview": "",
+    "file": "qayta_ozlashtirish.docx",
+    "price_per_page": 500,
+    "color": false,
+    "tags": [
+      "qayta",
+      "imtihon",
+      "akademik"
+    ]
+  },
+  {
+    "id": "dalolatnoma",
+    "name": "Dalolatnoma Blanki",
+    "description": "Rasmiy dalolatnoma (akt) blanki",
+    "category": "official",
+    "pages": 1,
+    "preview": "",
+    "file": "dalolatnoma.docx",
+    "price_per_page": 500,
+    "color": false,
+    "tags": [
+      "dalolatnoma",
+      "akt",
+      "rasmiy"
+    ]
+  },
+  {
+    "id": "border_klassik",
+    "name": "Klassik Ramka",
+    "description": "A4 oq-qora klassik hujjat ramkasi",
+    "category": "border",
+    "pages": 1,
+    "preview": "/static/previews/border_klassik.png",
+    "file": "border_klassik.pdf",
+    "price_per_page": 500,
+    "tags": [
+      "ramka",
+      "border",
+      "klassik"
+    ]
+  },
+  {
+    "id": "border_rangli",
+    "name": "Rangli Ramka",
+    "description": "A4 rangli zamonaviy hujjat ramkasi",
+    "category": "border",
+    "pages": 1,
+    "preview": "/static/previews/border_rangli.png",
+    "file": "border_rangli.pdf",
+    "price_per_page": 1500,
+    "color": true,
+    "tags": [
+      "ramka",
+      "border",
+      "rangli"
+    ]
+  }
+]

@@ -1,23 +1,31 @@
 /**
  * Smart Web-Printchi - Netlify Konfiguratsiyasi
+ *
+ * ⚠️ SOZLASH KERAK:
+ *  1. DEFAULT_API_URL — Raspberry Pi Ngrok manzili
+ *  2. PAYMENT — Haqiqiy karta raqami va egasi
+ *
+ * Yoki saytdagi ⚙️ tugma orqali sozlash mumkin (localStorage ga saqlanadi)
  */
 const AppConfig = {
-  // Doimiy bir umrlik Ngrok domeni
+  // Raspberry Pi Ngrok doimiy URL (setup_autostart.sh dagi bilan mos bo'lsin)
   DEFAULT_API_URL: "https://snazzy-chosen-lyricism.ngrok-free.dev",
 
   // To'lov tizimi sozlamalari
+  // ⚠️ cardNumber ni TO'LIQ kiriting: "8600 1234 5678 9012"
+  //    Yulduzcha (*) bo'lsa Click/Payme havolasi ishlamaydi!
   PAYMENT: {
     enabled: true,
-    cardNumber: "8600 5304 **** ****", // Default ko'rsatiladigan karta raqami
-    cardHolder: "PRINT MARKAZ EGASI",
+    cardNumber: "",          // ← TO'LIQ karta raqami: "8600 XXXX XXXX XXXX"
+    cardHolder: "",          // ← Karta egasi: "FAMILIYA ISM"
     cardBank: "Uzcard / Humo",
-    // Click sozlamalari
-    clickPhone: "+998901234567",
-    clickMerchantId: "",
-    clickServiceId: "",
-    // Payme sozlamalari
-    paymeMerchantId: "",
-    paymePhone: "+998901234567"
+    // Click P2P (MerchantId bo'lmasa karta orqali ishlaydi)
+    clickPhone: "",          // ← "+998XXXXXXXXX"
+    clickMerchantId: "",     // ← Click merchant bo'lmasa bo'sh qoldiring
+    clickServiceId: "",      // ← Click service bo'lmasa bo'sh qoldiring
+    // Payme (MerchantId bo'lmasa karta orqali ishlaydi)
+    paymeMerchantId: "",     // ← Payme merchant bo'lmasa bo'sh qoldiring
+    paymePhone: ""           // ← "+998XXXXXXXXX"
   },
 
   getPaymentConfig() {
