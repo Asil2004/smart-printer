@@ -1,8 +1,8 @@
-﻿"
+"""
 tunnel_sync.py — Avtomatik Tunnel Sync xizmati
 Raspberry Pi-dagi faol Cloudflare / Ngrok tunnel manzilini aniqlaydi va
 GitHub Pages uchun dinamik relay (ntfy) ga yuklaydi.
-"
+"""
 
 import time
 import subprocess
