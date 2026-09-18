@@ -78,36 +78,5 @@
       "akt",
       "rasmiy"
     ]
-  },
-  {
-    "id": "border_klassik",
-    "name": "Klassik Ramka",
-    "description": "A4 oq-qora klassik hujjat ramkasi",
-    "category": "border",
-    "pages": 1,
-    "preview": "/static/previews/border_klassik.png",
-    "file": "border_klassik.pdf",
-    "price_per_page": 500,
-    "tags": [
-      "ramka",
-      "border",
-      "klassik"
-    ]
-  },
-  {
-    "id": "border_rangli",
-    "name": "Rangli Ramka",
-    "description": "A4 rangli zamonaviy hujjat ramkasi",
-    "category": "border",
-    "pages": 1,
-    "preview": "/static/previews/border_rangli.png",
-    "file": "border_rangli.pdf",
-    "price_per_page": 1500,
-    "color": true,
-    "tags": [
-      "ramka",
-      "border",
-      "rangli"
-    ]
   }
 ]
