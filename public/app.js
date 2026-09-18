@@ -418,13 +418,17 @@ function openTemplateModal(tmpl) {
   document.getElementById('tmplModalName').textContent = tmpl.name;
   document.getElementById('tmplModalDesc').textContent = tmpl.description;
   document.getElementById('tmplModalPrice').textContent = `${tmpl.price_per_page.toLocaleString()} so'm/bet`;
-  document.getElementById('templateModal').classList.remove('hidden');
+  const m = document.getElementById('templateModal');
+  m.classList.remove('hidden');
+  m.style.display = 'flex';
   document.getElementById('tmplPrintBtn').onclick = () => printTemplate(tmpl);
   document.getElementById('tmplDeleteBtn').onclick = () => deleteTemplate(tmpl);
 }
 
 function closeTemplateModal() {
-  document.getElementById('templateModal').classList.add('hidden');
+  const m = document.getElementById('templateModal');
+  m.classList.add('hidden');
+  m.style.display = 'none';
 }
 
 async function deleteTemplate(tmpl) {

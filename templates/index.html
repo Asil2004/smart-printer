@@ -9,11 +9,13 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Font Awesome Ikonkalari -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <!-- SweetAlert2 (Zamonaviy alert va modallar) -->
+  <!-- SweetAlert2 -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <!-- PDF.js (PDF sahifalarini bir lahzada aniqlash) -->
+  <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+  <!-- Konfiguratsiya -->
+  <script src="config.js"></script>
 
   <script>
     tailwind.config = {
@@ -44,16 +46,18 @@
         </div>
         <div>
           <h1 class="font-bold text-base text-slate-900 leading-tight tracking-tight">Smart Web-Printchi</h1>
-          <p class="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-            Printer tayyor • Wi-Fi Portal
-          </p>
+          <div id="statusBadge" class="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-amber-500 inline-block animate-pulse"></span>
+            <span>Ulanmoqda...</span>
+          </div>
         </div>
       </div>
-      <div>
-        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-          <i class="fa-solid fa-wifi mr-1 text-[10px]"></i> Simsiz
-        </span>
+      
+      <!-- Sozlamalar tugmasi -->
+      <div class="flex items-center space-x-2">
+        <button type="button" id="settingsBtn" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors" title="Server URL Sozlamalari">
+          <i class="fa-solid fa-gear text-sm"></i>
+        </button>
       </div>
     </div>
   </header>
@@ -64,13 +68,13 @@
     <!-- Yo'riqnoma banneri -->
     <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-500/20 flex items-center justify-between">
       <div>
-        <h2 class="text-sm font-bold mb-0.5">Tezkor Chop Etish</h2>
+        <h2 class="text-sm font-bold mb-0.5">Simsiz Chop Etish Portali</h2>
         <p class="text-xs text-blue-100 leading-snug">
-          Hujjatni yuklang, sozlamalarni tanlang va "Chop etish"ni bosing.
+          Hujjat yuklang, shablon tanlang yoki AI bilan yozing.
         </p>
       </div>
       <div class="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-sm flex items-center justify-center text-2xl flex-shrink-0 ml-3">
-        <i class="fa-solid fa-file-invoice"></i>
+        <i class="fa-solid fa-cloud-arrow-up"></i>
       </div>
     </div>
 
@@ -91,202 +95,196 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════ -->
-    <!-- CHOP ETISH BO'LIMI -->
+    <!-- 1. CHOP ETISH BO'LIMI -->
     <!-- ══════════════════════════════════════════════════ -->
-    <div id="section-print">
+    <div id="section-print" class="space-y-4">
 
-    <!-- Printerlar Holati Paneli -->
-    <div id="printerStatusPanel" class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Printerlar Holati</span>
-        <button onclick="loadPrinterStatus()" class="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
-          <i class="fa-solid fa-arrows-rotate text-[10px]"></i> Yangilash
+      <!-- Printerlar Holati Paneli -->
+      <div id="printerStatusPanel" class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Printerlar Holati</span>
+          <button onclick="loadPrinterStatus()" class="text-[11px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1">
+            <i class="fa-solid fa-arrows-rotate text-[10px]"></i> Yangilash
+          </button>
+        </div>
+        <div id="printerStatusList" class="space-y-2">
+          <div class="text-xs text-slate-400 text-center py-2">Yuklanmoqda...</div>
+        </div>
+        <div id="routingHint" class="hidden mt-3 pt-3 border-t border-slate-100">
+          <p class="text-[11px] text-slate-500 flex items-center gap-1.5">
+            <i class="fa-solid fa-route text-blue-400"></i>
+            <span id="routingHintText"></span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Chop Etish Formasi -->
+      <form id="printForm" class="space-y-4">
+
+        <!-- Hujjat Yuklash Maydoni (Drag & Drop) -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+            1. Hujjat yoki Rasmni Tanlang
+          </label>
+          
+          <div id="dropZone" class="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-2xl p-5 text-center cursor-pointer bg-slate-50/70 hover:bg-blue-50/40 transition-all duration-200 group">
+            <input type="file" id="fileInput" name="file" accept=".pdf,.docx,.png,.jpg,.jpeg" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" required>
+            
+            <div id="promptContent" class="space-y-2">
+              <div class="w-12 h-12 rounded-full bg-blue-100 group-hover:bg-blue-200 text-blue-600 flex items-center justify-center mx-auto transition-colors">
+                <i class="fa-solid fa-cloud-arrow-up text-xl"></i>
+              </div>
+              <div class="text-sm font-semibold text-slate-700 group-hover:text-blue-700">
+                Faylni tanlang yoki tashlang
+              </div>
+              <p class="text-[11px] text-slate-400">
+                Formatlar: <span class="font-medium text-slate-600">PDF, DOCX, JPG, PNG</span>
+              </p>
+            </div>
+
+            <!-- Tanlangan fayl ko'rinishi -->
+            <div id="fileInfoBox" class="hidden flex items-center justify-between p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-left">
+              <div class="flex items-center space-x-3 overflow-hidden">
+                <div id="fileTypeIconWrap" class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 text-base shadow-sm">
+                  <i id="fileTypeIcon" class="fa-solid fa-file-pdf"></i>
+                </div>
+                <div class="overflow-hidden">
+                  <div id="fileNameTxt" class="text-xs font-bold text-slate-800 truncate">hujjat.pdf</div>
+                  <div class="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                    <span id="fileSizeTxt">1.2 MB</span>
+                    <span>•</span>
+                    <span id="filePagesTxt" class="font-medium text-blue-600">Sahifalar sanalmoqda...</span>
+                  </div>
+                </div>
+              </div>
+              <button type="button" id="removeFileBtn" class="p-2 text-slate-400 hover:text-rose-500 transition-colors z-20" title="Faylni olib tashlash">
+                <i class="fa-solid fa-circle-xmark text-lg"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chop Etish Parametrlari -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-4">
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">
+            2. Chop Etish Sozlamalari
+          </label>
+
+          <!-- Rang turi -->
+          <div>
+            <span class="block text-xs font-semibold text-slate-700 mb-1.5">Rang turi</span>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="cursor-pointer">
+                <input type="radio" name="color_mode" value="gray" class="peer sr-only" checked>
+                <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-blue-600 peer-checked:bg-blue-50/60 peer-checked:text-blue-700 hover:border-slate-300">
+                  <i class="fa-solid fa-circle-half-stroke text-sm mb-1 block"></i>
+                  <span class="text-xs font-bold block">Oq-qora</span>
+                  <span class="text-[10px] text-slate-500 block">500 so‘m/bet</span>
+                </div>
+              </label>
+              <label class="cursor-pointer">
+                <input type="radio" name="color_mode" value="color" class="peer sr-only">
+                <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-blue-600 peer-checked:bg-blue-50/60 peer-checked:text-blue-700 hover:border-slate-300">
+                  <i class="fa-solid fa-palette text-sm mb-1 block text-pink-500"></i>
+                  <span class="text-xs font-bold block">Rangli</span>
+                  <span class="text-[10px] text-slate-500 block">1500 so‘m/bet</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Orientatsiya va Tomonlar -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <span class="block text-xs font-semibold text-slate-700 mb-1.5">Orientatsiya</span>
+              <div class="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl">
+                <label class="cursor-pointer">
+                  <input type="radio" name="orientation" value="portrait" class="peer sr-only" checked>
+                  <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
+                    Tik
+                  </div>
+                </label>
+                <label class="cursor-pointer">
+                  <input type="radio" name="orientation" value="landscape" class="peer sr-only">
+                  <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
+                    Yotiq
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <span class="block text-xs font-semibold text-slate-700 mb-1.5">Tomonlar</span>
+              <div class="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl">
+                <label class="cursor-pointer">
+                  <input type="radio" name="duplex" value="one-sided" class="peer sr-only" checked>
+                  <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
+                    1 tomon
+                  </div>
+                </label>
+                <label class="cursor-pointer">
+                  <input type="radio" name="duplex" value="two-sided" class="peer sr-only">
+                  <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
+                    2 tomon
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Nusxalar soni va Sahifalar oralig'i -->
+          <div class="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <span class="block text-xs font-semibold text-slate-700 mb-1.5">Nusxalar soni</span>
+              <div class="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
+                <button type="button" id="minusCopyBtn" class="w-10 h-10 hover:bg-slate-200 active:bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-sm transition-colors">
+                  <i class="fa-solid fa-minus"></i>
+                </button>
+                <input type="number" id="copiesVal" name="copies" value="1" min="1" max="10" class="w-full text-center text-sm font-bold bg-white text-slate-800 focus:outline-none h-10 border-x border-slate-200" readonly>
+                <button type="button" id="plusCopyBtn" class="w-10 h-10 hover:bg-slate-200 active:bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-sm transition-colors">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <span class="block text-xs font-semibold text-slate-700 mb-1.5">Sahifalar oralig‘i</span>
+              <input type="text" id="pageRangesInput" name="page_ranges" placeholder="Barchasi (masalan: 1-5)" class="w-full h-10 px-3 text-xs rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-400 bg-white">
+            </div>
+          </div>
+        </div>
+
+        <!-- Jonli Hisob-kitob (Kalkulyator) -->
+        <div class="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-4 shadow-md flex items-center justify-between">
+          <div class="space-y-0.5">
+            <span class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block">Jami Hisob:</span>
+            <div class="text-xs text-slate-300">
+              <span id="calcPagesCount" class="font-bold text-white">1</span> sahifa × 
+              <span id="calcCopiesCount" class="font-bold text-white">1</span> nusxa
+              (<span id="calcSheetsCount" class="text-emerald-400 font-medium">1 varaq</span>)
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="text-[11px] text-slate-400 block font-medium">Taxminiy narx</span>
+            <div class="text-lg font-black text-emerald-400 tracking-tight">
+              <span id="totalPriceTxt">500</span> <span class="text-xs font-semibold text-slate-300">so‘m</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Katta Chop Etish Tugmasi -->
+        <button type="submit" id="printSubmitBtn" class="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center space-x-2">
+          <i class="fa-solid fa-credit-card text-base"></i>
+          <span>To‘lov Qilish va Chop Etish</span>
         </button>
-      </div>
-      <div id="printerStatusList" class="space-y-2">
-        <div class="text-xs text-slate-400 text-center py-2">Yuklanmoqda...</div>
-      </div>
-      <div id="routingHint" class="hidden mt-3 pt-3 border-t border-slate-100">
-        <p class="text-[11px] text-slate-500 flex items-center gap-1.5">
-          <i class="fa-solid fa-route text-blue-400"></i>
-          <span id="routingHintText"></span>
-        </p>
-      </div>
+
+      </form>
     </div>
 
-    <!-- Chop Etish Formasi -->
-    <form id="printForm" class="space-y-4">
-
-      <!-- 1. Hujjat Yuklash Maydoni (Drag & Drop) -->
-      <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-          1. Hujjat yoki Rasmni Tanlang
-        </label>
-        
-        <div id="dropZone" class="relative border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-2xl p-5 text-center cursor-pointer bg-slate-50/70 hover:bg-blue-50/40 transition-all duration-200 group">
-          <input type="file" id="fileInput" name="file" accept=".pdf,.docx,.png,.jpg,.jpeg" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" required>
-          
-          <div id="promptContent" class="space-y-2">
-            <div class="w-12 h-12 rounded-full bg-blue-100 group-hover:bg-blue-200 text-blue-600 flex items-center justify-center mx-auto transition-colors">
-              <i class="fa-solid fa-cloud-arrow-up text-xl"></i>
-            </div>
-            <div class="text-sm font-semibold text-slate-700 group-hover:text-blue-700">
-              Faylni tanlang yoki tashlang
-            </div>
-            <p class="text-[11px] text-slate-400">
-              Formatlar: <span class="font-medium text-slate-600">PDF, DOCX, JPG, PNG</span>
-            </p>
-          </div>
-
-          <!-- Tanlangan fayl ko'rinishi -->
-          <div id="fileInfoBox" class="hidden flex items-center justify-between p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-left">
-            <div class="flex items-center space-x-3 overflow-hidden">
-              <div id="fileTypeIconWrap" class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 text-base shadow-sm">
-                <i id="fileTypeIcon" class="fa-solid fa-file-pdf"></i>
-              </div>
-              <div class="overflow-hidden">
-                <div id="fileNameTxt" class="text-xs font-bold text-slate-800 truncate">hujjat.pdf</div>
-                <div class="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                  <span id="fileSizeTxt">1.2 MB</span>
-                  <span>•</span>
-                  <span id="filePagesTxt" class="font-medium text-blue-600">Aniqlanmoqda...</span>
-                </div>
-              </div>
-            </div>
-            <button type="button" id="removeFileBtn" class="p-2 text-slate-400 hover:text-rose-500 transition-colors z-20" title="Faylni olib tashlash">
-              <i class="fa-solid fa-circle-xmark text-lg"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 2. Chop Etish Parametrlari -->
-      <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-4">
-        <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">
-          2. Chop Etish Sozlamalari
-        </label>
-
-        <!-- Rang turi -->
-        <div>
-          <span class="block text-xs font-semibold text-slate-700 mb-1.5">Rang turi</span>
-          <div class="grid grid-cols-2 gap-2">
-            <label class="cursor-pointer">
-              <input type="radio" name="color_mode" value="gray" class="peer sr-only" checked>
-              <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-blue-600 peer-checked:bg-blue-50/60 peer-checked:text-blue-700 hover:border-slate-300">
-                <i class="fa-solid fa-circle-half-stroke text-sm mb-1 block"></i>
-                <span class="text-xs font-bold block">Oq-qora</span>
-                <span class="text-[10px] text-slate-500 block">500 so‘m/bet</span>
-              </div>
-            </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="color_mode" value="color" class="peer sr-only">
-              <div class="py-2.5 px-3 rounded-xl border border-slate-200 text-center transition-all peer-checked:border-blue-600 peer-checked:bg-blue-50/60 peer-checked:text-blue-700 hover:border-slate-300">
-                <i class="fa-solid fa-palette text-sm mb-1 block text-pink-500"></i>
-                <span class="text-xs font-bold block">Rangli</span>
-                <span class="text-[10px] text-slate-500 block">1500 so‘m/bet</span>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Orientatsiya va Tomonlar -->
-        <div class="grid grid-cols-2 gap-3">
-          <!-- Orientatsiya -->
-          <div>
-            <span class="block text-xs font-semibold text-slate-700 mb-1.5">Orientatsiya</span>
-            <div class="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl">
-              <label class="cursor-pointer">
-                <input type="radio" name="orientation" value="portrait" class="peer sr-only" checked>
-                <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
-                  Tik
-                </div>
-              </label>
-              <label class="cursor-pointer">
-                <input type="radio" name="orientation" value="landscape" class="peer sr-only">
-                <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
-                  Yotiq
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <!-- Tomonlar (Duplex) -->
-          <div>
-            <span class="block text-xs font-semibold text-slate-700 mb-1.5">Tomonlar</span>
-            <div class="grid grid-cols-2 gap-1 bg-slate-100 p-1 rounded-xl">
-              <label class="cursor-pointer">
-                <input type="radio" name="duplex" value="one-sided" class="peer sr-only" checked>
-                <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
-                  1 tomon
-                </div>
-              </label>
-              <label class="cursor-pointer">
-                <input type="radio" name="duplex" value="two-sided" class="peer sr-only">
-                <div class="py-2 text-center text-xs font-medium rounded-lg text-slate-600 peer-checked:bg-white peer-checked:text-blue-700 peer-checked:font-bold peer-checked:shadow-sm transition-all">
-                  2 tomon
-                </div>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Nusxalar soni va Sahifalar oralig'i -->
-        <div class="grid grid-cols-2 gap-3 pt-1">
-          <!-- Nusxalar soni (+ / -) -->
-          <div>
-            <span class="block text-xs font-semibold text-slate-700 mb-1.5">Nusxalar soni</span>
-            <div class="flex items-center border border-slate-200 rounded-xl overflow-hidden bg-slate-50">
-              <button type="button" id="minusCopyBtn" class="w-10 h-10 hover:bg-slate-200 active:bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-sm transition-colors">
-                <i class="fa-solid fa-minus"></i>
-              </button>
-              <input type="number" id="copiesVal" name="copies" value="1" min="1" max="10" class="w-full text-center text-sm font-bold bg-white text-slate-800 focus:outline-none h-10 border-x border-slate-200" readonly>
-              <button type="button" id="plusCopyBtn" class="w-10 h-10 hover:bg-slate-200 active:bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-sm transition-colors">
-                <i class="fa-solid fa-plus"></i>
-              </button>
-            </div>
-          </div>
-
-          <!-- Sahifalar oralig'i -->
-          <div>
-            <span class="block text-xs font-semibold text-slate-700 mb-1.5">Sahifalar oralig‘i</span>
-            <input type="text" id="pageRangesInput" name="page_ranges" placeholder="Masalan: 1-5 yoki barchasi" class="w-full h-10 px-3 text-xs rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-400 bg-white">
-          </div>
-        </div>
-      </div>
-
-      <!-- 3. Jonli Hisob-kitob (Kalkulyator bloki) -->
-      <div class="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-4 shadow-md flex items-center justify-between">
-        <div class="space-y-0.5">
-          <span class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block">Jami Hisob-kitob:</span>
-          <div class="text-xs text-slate-300">
-            <span id="calcPagesCount" class="font-bold text-white">1</span> sahifa × 
-            <span id="calcCopiesCount" class="font-bold text-white">1</span> nusxa
-            (<span id="calcSheetsCount" class="text-emerald-400 font-medium">1 varaq</span>)
-          </div>
-        </div>
-        <div class="text-right">
-          <span class="text-[11px] text-slate-400 block font-medium">Taxminiy narx</span>
-          <div class="text-lg font-black text-emerald-400 tracking-tight">
-            <span id="totalPriceTxt">500</span> <span class="text-xs font-semibold text-slate-300">so‘m</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. Katta Chop Etish Tugmasi -->
-      <button type="submit" id="printSubmitBtn" class="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-[0.99] text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center space-x-2">
-        <i class="fa-solid fa-print text-base"></i>
-        <span>Chop Etish</span>
-      </button>
-
-    </form>
-    </div><!-- /section-print -->
-
     <!-- ══════════════════════════════════════════════════ -->
-    <!-- SHABLONLAR BO'LIMI -->
+    <!-- 2. SHABLONLAR BO'LIMI -->
     <!-- ══════════════════════════════════════════════════ -->
     <div id="section-templates" class="hidden space-y-3">
-
-      <!-- Header: filtrlar + admin qo'shish -->
       <div class="flex items-center justify-between">
         <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Tayyor Shablonlar</span>
         <button onclick="openAdminUpload()"
@@ -295,7 +293,6 @@
         </button>
       </div>
 
-      <!-- Kategoriya filtrlari -->
       <div class="flex gap-1 flex-wrap">
         <button onclick="filterTemplates('')" id="filter-all"
           class="filter-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-blue-600 text-white">Barchasi</button>
@@ -315,7 +312,7 @@
         </div>
       </div>
 
-      <!-- ── Admin: Shablon yuklash modali ── -->
+      <!-- Admin: Shablon yuklash modali -->
       <div id="adminUploadModal" class="hidden fixed inset-0 z-50 flex items-end">
         <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeAdminUpload()"></div>
         <div class="relative w-full max-w-md mx-auto bg-white rounded-t-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -325,7 +322,6 @@
           </h3>
 
           <form id="adminUploadForm" class="space-y-3">
-            <!-- Fayl -->
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">PDF yoki DOCX fayl *</label>
               <div id="adminFileZone" class="relative border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-xl p-4 text-center cursor-pointer transition-all">
@@ -336,21 +332,18 @@
               </div>
             </div>
 
-            <!-- Nom -->
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Shablon nomi *</label>
               <input type="text" name="name" id="adminTmplName" required placeholder="Mustaqil Ish Yuzi"
                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
             </div>
 
-            <!-- Tavsif -->
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Tavsif</label>
               <input type="text" name="description" placeholder="Qisqacha tavsif..."
                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-50">
             </div>
 
-            <!-- Kategoriya va Narx -->
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Kategoriya</label>
@@ -369,7 +362,6 @@
               </div>
             </div>
 
-            <!-- Rangli? -->
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" name="color" value="true" class="rounded accent-pink-500">
               <span class="text-xs font-semibold text-slate-700">Rangli shablon (1500 so'm)</span>
@@ -386,45 +378,12 @@
           </form>
         </div>
       </div>
-
-      <!-- Shablon ko'rish / chop etish modali -->
-      <div id="templateModal" class="hidden fixed inset-0 z-50 flex items-end">
-        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" onclick="closeTemplateModal()"></div>
-        <div class="relative w-full max-w-md mx-auto bg-white rounded-t-3xl p-5 space-y-4 shadow-2xl">
-          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto"></div>
-          <div class="flex items-start gap-3">
-            <div id="tmplModalIcon" class="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600 text-xl flex-shrink-0">
-              <i class="fa-solid fa-file"></i>
-            </div>
-            <div class="flex-1">
-              <h3 id="tmplModalName" class="font-bold text-slate-900 text-sm"></h3>
-              <p id="tmplModalDesc" class="text-xs text-slate-500 mt-0.5"></p>
-            </div>
-            <button id="tmplDeleteBtn" class="text-rose-400 hover:text-rose-600 transition-colors p-1" title="O'chirish">
-              <i class="fa-solid fa-trash text-xs"></i>
-            </button>
-          </div>
-          </div>
-          <div class="bg-slate-50 rounded-xl p-3 flex justify-between text-xs">
-            <span class="text-slate-500">Narxi</span>
-            <span id="tmplModalPrice" class="font-bold text-blue-600"></span>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="closeTemplateModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600">Bekor</button>
-            <button id="tmplPrintBtn" class="flex-1 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold shadow-md shadow-blue-500/30">
-              <i class="fa-solid fa-print mr-1"></i>Chop Etish
-            </button>
-          </div>
-        </div>
-      </div>
-    </div><!-- /section-templates -->
+    </div>
 
     <!-- ══════════════════════════════════════════════════ -->
-    <!-- AI WRITER BO'LIMI -->
+    <!-- 3. AI WRITER BO'LIMI -->
     <!-- ══════════════════════════════════════════════════ -->
     <div id="section-ai" class="hidden space-y-4">
-
-      <!-- AI Writer banner -->
       <div class="bg-gradient-to-r from-violet-600 to-purple-600 rounded-2xl p-4 text-white shadow-lg">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-xl">
@@ -437,10 +396,7 @@
         </div>
       </div>
 
-      <!-- AI Writer Form -->
       <form id="aiForm" class="space-y-4">
-
-        <!-- Hujjat turi -->
         <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
           <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Hujjat Turi</label>
           <div id="docTypeGrid" class="grid grid-cols-2 gap-2">
@@ -482,7 +438,6 @@
           </div>
         </div>
 
-        <!-- Ma'lumotlar -->
         <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
           <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">Ma'lumotlar</label>
 
@@ -514,7 +469,6 @@
               class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 resize-none"></textarea>
           </div>
 
-          <!-- Rasm yuklash -->
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Rasm (ixtiyoriy — qo'lda yozilgan matn)</label>
             <div id="aiImageZone" class="relative border-2 border-dashed border-slate-200 hover:border-violet-400 rounded-xl p-4 text-center cursor-pointer transition-all">
@@ -526,7 +480,6 @@
           </div>
         </div>
 
-        <!-- Narx hisoblash -->
         <div id="aiPriceBox" class="bg-violet-50 border border-violet-100 rounded-2xl p-4 hidden">
           <div class="flex justify-between text-xs mb-1">
             <span class="text-slate-600">AI yozish</span>
@@ -542,7 +495,6 @@
           </div>
         </div>
 
-        <!-- AI tugmalari -->
         <button type="submit" id="aiWriteBtn"
           class="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold text-sm shadow-lg shadow-violet-500/30 flex items-center justify-center gap-2">
           <i class="fa-solid fa-wand-magic-sparkles"></i>
@@ -550,7 +502,6 @@
         </button>
       </form>
 
-      <!-- AI Natija -->
       <div id="aiResult" class="hidden bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
         <div class="flex items-center gap-2 text-emerald-600">
           <i class="fa-solid fa-circle-check"></i>
@@ -571,616 +522,165 @@
           </button>
         </div>
       </div>
-
-    </div><!-- /section-ai -->
+    </div>
 
   </main>
 
+  <!-- ================= SHABLON KO'RISH / CHOP ETISH MODALI ================= -->
+  <div id="templateModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-all duration-200">
+    <div class="absolute inset-0" onclick="closeTemplateModal()"></div>
+    <div class="relative w-full max-w-sm bg-white rounded-3xl p-5 space-y-4 shadow-2xl border border-slate-100 transform transition-all">
+      <div class="flex items-start gap-3">
+        <div id="tmplModalIcon" class="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600 text-xl flex-shrink-0 shadow-sm shadow-blue-500/10">
+          <i class="fa-solid fa-file"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <h3 id="tmplModalName" class="font-bold text-slate-900 text-sm truncate"></h3>
+          <p id="tmplModalDesc" class="text-xs text-slate-500 mt-0.5 line-clamp-2"></p>
+        </div>
+        <button id="tmplDeleteBtn" class="w-8 h-8 rounded-full hover:bg-rose-50 text-rose-400 hover:text-rose-600 flex items-center justify-center transition-colors flex-shrink-0" title="O'chirish">
+          <i class="fa-solid fa-trash text-xs"></i>
+        </button>
+      </div>
+
+      <div class="bg-slate-50 rounded-2xl p-3 flex justify-between items-center text-xs border border-slate-100">
+        <span class="text-slate-500 font-medium">Xizmat Narxi:</span>
+        <span id="tmplModalPrice" class="font-bold text-blue-600 text-sm"></span>
+      </div>
+
+      <div class="flex gap-2 pt-1">
+        <button type="button" onclick="closeTemplateModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+          Bekor
+        </button>
+        <button type="button" id="tmplPrintBtn" class="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white text-xs font-bold shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-print"></i>
+          <span>Chop Etish</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TO'LOV MODALI (PAYMENT MODAL) ================= -->
+  <div id="paymentModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm opacity-0 pointer-events-none transition-all duration-300">
+    <div class="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-95 transition-all duration-300" id="paymentModalCard">
+      
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+            <i class="fa-solid fa-wallet"></i>
+          </div>
+          <h3 class="font-bold text-slate-800 text-sm">Xizmat To‘lovi</h3>
+        </div>
+        <button type="button" id="closePaymentModalBtn" class="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <div class="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <span class="text-xs text-slate-500 block">To‘lov Miqdori:</span>
+            <span id="modalAmountTxt" class="text-2xl font-black text-slate-900">0</span>
+            <span class="text-xs font-semibold text-slate-600">so‘m</span>
+          </div>
+          <div class="text-right text-[11px] text-slate-400">
+            <span id="modalOrderSummary">1 bet • 1 nusxa</span>
+          </div>
+        </div>
+
+        <div class="flex p-1 bg-slate-100 rounded-xl gap-1">
+          <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-bold rounded-lg transition-all bg-white text-blue-700 shadow-sm" data-tab="card">
+            <i class="fa-solid fa-credit-card mr-1"></i>Karta
+          </button>
+          <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-medium text-slate-600 rounded-lg transition-all hover:text-slate-900" data-tab="click">
+            Click
+          </button>
+          <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-medium text-slate-600 rounded-lg transition-all hover:text-slate-900" data-tab="payme">
+            Payme
+          </button>
+        </div>
+
+        <!-- TAB 1: KARTA -->
+        <div id="tabContentCard" class="space-y-3 pay-tab-content">
+          <div class="p-4 rounded-2xl bg-gradient-to-tr from-slate-900 via-blue-950 to-indigo-950 text-white shadow-xl shadow-blue-950/20 relative overflow-hidden border border-blue-900/30">
+            <div class="flex justify-between items-start mb-4">
+              <span class="text-[11px] font-medium tracking-wider text-blue-200" id="cardBankTxt">UZCARD / HUMO</span>
+              <i class="fa-solid fa-wifi text-xs text-blue-300"></i>
+            </div>
+            
+            <div class="flex items-center justify-between mb-3">
+              <span id="modalCardNumber" class="text-lg font-mono font-bold tracking-widest text-white">8600 •••• •••• ••••</span>
+              <button type="button" id="copyCardBtn" class="px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs font-semibold flex items-center space-x-1 transition-all active:scale-95">
+                <i class="fa-solid fa-copy"></i>
+                <span id="copyCardTxt">Nusxa</span>
+              </button>
+            </div>
+
+            <div class="flex justify-between items-end text-xs text-blue-200">
+              <div>
+                <span class="text-[9px] uppercase tracking-wider block text-blue-300">Karta Egasi</span>
+                <span id="modalCardHolder" class="font-bold text-white uppercase">PRINT MARKAZ</span>
+              </div>
+              <span class="text-[10px] bg-white/10 px-2 py-0.5 rounded text-blue-200">24/7 Qabul</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: CLICK -->
+        <div id="tabContentClick" class="space-y-3 pay-tab-content hidden text-center">
+          <div class="p-4 rounded-2xl border border-blue-100 bg-blue-50/50 space-y-3">
+            <div class="w-12 h-12 mx-auto rounded-2xl bg-blue-600 text-white flex items-center justify-center text-xl font-black shadow-md shadow-blue-500/20">
+              C
+            </div>
+            <div>
+              <h4 class="text-sm font-bold text-slate-800">Click orqali to‘lash</h4>
+              <p class="text-xs text-slate-500 mt-0.5">Click ilovasiga o‘tib to‘lash</p>
+            </div>
+            <a id="clickPayLink" href="#" target="_blank" class="inline-flex items-center justify-center w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition-all space-x-2">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i>
+              <span>Click Ilovasida To‘lash</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- TAB 3: PAYME -->
+        <div id="tabContentPayme" class="space-y-3 pay-tab-content hidden text-center">
+          <div class="p-4 rounded-2xl border border-teal-100 bg-teal-50/50 space-y-3">
+            <div class="w-12 h-12 mx-auto rounded-2xl bg-teal-600 text-white flex items-center justify-center text-xl font-black shadow-md shadow-teal-500/20">
+              P
+            </div>
+            <div>
+              <h4 class="text-sm font-bold text-slate-800">Payme orqali to‘lash</h4>
+              <p class="text-xs text-slate-500 mt-0.5">Payme tizimi orqali to‘lov</p>
+            </div>
+            <a id="paymePayLink" href="#" target="_blank" class="inline-flex items-center justify-center w-full py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/30 transition-all space-x-2">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i>
+              <span>Payme Ilovasida To‘lash</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-100 space-y-2">
+          <button type="button" id="confirmPaymentBtn" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-[0.99] text-white font-bold text-xs shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-circle-check text-sm"></i>
+            <span>To‘lov Qildim — Chop Etilsin!</span>
+          </button>
+          
+          <button type="button" id="cancelPaymentBtn" class="w-full py-2.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xs font-semibold transition-colors">
+            Bekor qilish
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="text-center text-xs text-slate-400 py-3">
-    Smart Web-Printchi &copy; 2026 | Raspberry Pi 3 Model B
+    Smart Web-Printchi &copy; 2026 | Netlify &amp; Raspberry Pi
   </footer>
 
-  <!-- ================= JAVASCRIPT / LOGIKA ================= -->
-  <script>
-    // Narx stavkalari (Backend parametrlariga mos)
-    const PRICE_BW = {{ price_bw|default(500) }};
-    const PRICE_COLOR = {{ price_color|default(1500) }};
-
-    // DOM Elementlari
-    const printForm = document.getElementById('printForm');
-    const fileInput = document.getElementById('fileInput');
-    const dropZone = document.getElementById('dropZone');
-    const promptContent = document.getElementById('promptContent');
-    const fileInfoBox = document.getElementById('fileInfoBox');
-    const fileNameTxt = document.getElementById('fileNameTxt');
-    const fileSizeTxt = document.getElementById('fileSizeTxt');
-    const filePagesTxt = document.getElementById('filePagesTxt');
-    const fileTypeIcon = document.getElementById('fileTypeIcon');
-    const removeFileBtn = document.getElementById('removeFileBtn');
-    const printSubmitBtn = document.getElementById('printSubmitBtn');
-
-    // Sozlamalar
-    const copiesVal = document.getElementById('copiesVal');
-    const plusCopyBtn = document.getElementById('plusCopyBtn');
-    const minusCopyBtn = document.getElementById('minusCopyBtn');
-    const pageRangesInput = document.getElementById('pageRangesInput');
-
-    // Kalkulyator
-    const calcPagesCount = document.getElementById('calcPagesCount');
-    const calcCopiesCount = document.getElementById('calcCopiesCount');
-    const calcSheetsCount = document.getElementById('calcSheetsCount');
-    const totalPriceTxt = document.getElementById('totalPriceTxt');
-
-    let detectedPages = 1;
-
-    // Hajmni formatlash
-    function formatBytes(bytes) {
-      if (!bytes) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-    }
-
-    // Kalkulyatorni qayta hisoblash
-    function updatePricing() {
-      const copies = parseInt(copiesVal.value) || 1;
-      const colorMode = document.querySelector('input[name="color_mode"]:checked').value;
-      const duplex = document.querySelector('input[name="duplex"]:checked').value;
-      
-      let pages = detectedPages;
-      
-      // Agar sahifalar oralig'i kiritilgan bo'lsa (masalan 1-3)
-      const rangeStr = pageRangesInput.value.trim();
-      if (rangeStr && rangeStr.includes('-')) {
-        const parts = rangeStr.split('-');
-        const p1 = parseInt(parts[0]);
-        const p2 = parseInt(parts[1]);
-        if (!isNaN(p1) && !isNaN(p2) && p2 >= p1) {
-          pages = (p2 - p1) + 1;
-        }
-      }
-
-      const totalPageImpressions = pages * copies;
-      const unitPrice = (colorMode === 'color') ? PRICE_COLOR : PRICE_BW;
-      const totalPrice = totalPageImpressions * unitPrice;
-
-      // Qog'oz varag'i (sheets)
-      let sheets = totalPageImpressions;
-      if (duplex === 'two-sided') {
-        sheets = Math.ceil(pages / 2) * copies;
-      }
-
-      calcPagesCount.textContent = pages;
-      calcCopiesCount.textContent = copies;
-      calcSheetsCount.textContent = sheets + ' varaq';
-      totalPriceTxt.textContent = totalPrice.toLocaleString();
-    }
-
-    // Nusxalar tugmalari
-    plusCopyBtn.addEventListener('click', () => {
-      let val = parseInt(copiesVal.value) || 1;
-      if (val < 10) copiesVal.value = val + 1;
-      updatePricing();
-    });
-
-    minusCopyBtn.addEventListener('click', () => {
-      let val = parseInt(copiesVal.value) || 1;
-      if (val > 1) copiesVal.value = val - 1;
-      updatePricing();
-    });
-
-    document.querySelectorAll('input[name="color_mode"], input[name="duplex"]').forEach(el => {
-      el.addEventListener('change', updatePricing);
-    });
-
-    pageRangesInput.addEventListener('input', updatePricing);
-
-    // Faylni tanlash va tahlil qilish
-    async function handleSelectedFile(file) {
-      if (!file) return;
-
-      fileNameTxt.textContent = file.name;
-      fileSizeTxt.textContent = formatBytes(file.size);
-      filePagesTxt.textContent = 'Sahifalar sanalmoqda...';
-
-      const ext = file.name.split('.').pop().toLowerCase();
-      if (ext === 'pdf') {
-        fileTypeIcon.className = 'fa-solid fa-file-pdf text-rose-500';
-      } else if (ext === 'docx') {
-        fileTypeIcon.className = 'fa-solid fa-file-word text-blue-500';
-      } else if (['png', 'jpg', 'jpeg'].includes(ext)) {
-        fileTypeIcon.className = 'fa-solid fa-file-image text-emerald-500';
-      } else {
-        fileTypeIcon.className = 'fa-solid fa-file text-slate-500';
-      }
-
-      promptContent.classList.add('hidden');
-      fileInfoBox.classList.remove('hidden');
-
-      // 1. Agar PDF bo'lsa - Mozilla PDF.js orqali brauzerda darhol sanash
-      if (ext === 'pdf' && window.pdfjsLib) {
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-          detectedPages = Math.max(1, pdf.numPages || 1);
-          filePagesTxt.textContent = `${detectedPages} ta sahifa`;
-          updatePricing();
-          return;
-        } catch (pdfErr) {
-          console.warn('PDF.js xatosi, server orqali tekshiriladi:', pdfErr);
-        }
-      }
-
-      // 2. Agar DOCX bo'lsa yoki PDF.js o'qiy olmasa
-      if (ext === 'pdf' || ext === 'docx') {
-        const formData = new FormData();
-        formData.append('file', file);
-        try {
-          const res = await fetch('/api/inspect-file', { method: 'POST', body: formData });
-          const data = await res.json();
-          if (data.success && data.page_count) {
-            detectedPages = Math.max(1, data.page_count);
-            filePagesTxt.textContent = `${detectedPages} ta sahifa`;
-          } else {
-            detectedPages = 1;
-            filePagesTxt.textContent = '1 ta sahifa';
-          }
-        } catch (e) {
-          detectedPages = 1;
-          filePagesTxt.textContent = '1 ta sahifa';
-        }
-      } else {
-        detectedPages = 1;
-        filePagesTxt.textContent = '1 ta sahifa';
-      }
-
-      updatePricing();
-    }
-
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        handleSelectedFile(e.target.files[0]);
-      }
-    });
-
-    removeFileBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      fileInput.value = '';
-      fileInfoBox.classList.add('hidden');
-      promptContent.classList.remove('hidden');
-      detectedPages = 1;
-      updatePricing();
-    });
-
-    // Drag & Drop
-    ['dragenter', 'dragover'].forEach(name => {
-      dropZone.addEventListener(name, (e) => {
-        e.preventDefault();
-        dropZone.classList.add('border-blue-500', 'bg-blue-50/50');
-      });
-    });
-
-    ['dragleave', 'drop'].forEach(name => {
-      dropZone.addEventListener(name, (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('border-blue-500', 'bg-blue-50/50');
-      });
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-      if (e.dataTransfer.files.length > 0) {
-        fileInput.files = e.dataTransfer.files;
-        handleSelectedFile(e.dataTransfer.files[0]);
-      }
-    });
-
-    // Formani yuborish (SweetAlert2 bilan real-time jarayon)
-    printForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      if (!fileInput.files.length) {
-        Swal.fire({
-          icon: 'warning',
-          title: 'Fayl tanlanmadi!',
-          text: 'Iltimos, avval chop etilishi kerak bo‘lgan hujjatni tanlang.',
-          confirmButtonColor: '#2563eb',
-          confirmButtonText: 'Tushundim'
-        });
-        return;
-      }
-
-      // 1-bosqich: Yuklanmoqda modalini ochish
-      Swal.fire({
-        title: 'Chop etilmoqda...',
-        html: `
-          <div class="space-y-3 py-2 text-center">
-            <div class="text-xs text-slate-500" id="swalStepText">Fayl serverga yuklanmoqda...</div>
-            <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-              <div id="swalBar" class="bg-blue-600 h-full rounded-full transition-all duration-500" style="width: 35%"></div>
-            </div>
-          </div>
-        `,
-        allowOutsideClick: false,
-        allowEscapeKey: false,
-        showConfirmButton: false,
-        didOpen: () => {
-          Swal.showLoading();
-        }
-      });
-
-      const formData = new FormData(printForm);
-
-      try {
-        // Simulyatsiya qadamlari
-        setTimeout(() => {
-          const stepText = document.getElementById('swalStepText');
-          const bar = document.getElementById('swalBar');
-          if (stepText && bar) {
-            stepText.textContent = 'Hujjat printer formatiga moslashtirilmoqda...';
-            bar.style.width = '70%';
-          }
-        }, 800);
-
-        const response = await fetch('/api/print', {
-          method: 'POST',
-          body: formData
-        });
-
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-          const bar = document.getElementById('swalBar');
-          if (bar) bar.style.width = '100%';
-
-          // Muvaffaqiyat xabari
-          Swal.fire({
-            icon: 'success',
-            title: 'Muvaffaqiyatli!',
-            html: `
-              <div class="text-sm text-slate-600 space-y-2">
-                <p>${result.message}</p>
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 text-left">
-                  <div><strong>Printer:</strong> ${result.printer}</div>
-                  <div><strong>Nusxalar soni:</strong> ${result.copies} ta</div>
-                </div>
-              </div>
-            `,
-            confirmButtonColor: '#16a34a',
-            confirmButtonText: 'Ajoyib, tushundim'
-          });
-
-          // Formani qayta tiklash
-          printForm.reset();
-          fileInfoBox.classList.add('hidden');
-          promptContent.classList.remove('hidden');
-          detectedPages = 1;
-          updatePricing();
-
-        } else {
-          Swal.fire({
-            icon: 'error',
-            title: 'Xatolik yuz berdi!',
-            text: result.message || 'Chop etishda nosozlik yuz berdi.',
-            confirmButtonColor: '#e11d48',
-            confirmButtonText: 'Qayta urinish'
-          });
-        }
-      } catch (err) {
-        Swal.fire({
-          icon: 'error',
-          title: 'Aloqa xatosi',
-          text: 'Server bilan bog\'lanishda xatolik yuz berdi. Wi-Fi tarmog\'ini tekshiring.',
-          confirmButtonColor: '#e11d48',
-          confirmButtonText: 'Yopish'
-        });
-      }
-    });
-
-    // Dastlabki hisob
-    updatePricing();
-
-    // ── Tab Navigatsiya ──────────────────────────────────
-    function switchTab(tab) {
-      ['print','templates','ai'].forEach(t => {
-        const sec = document.getElementById(`section-${t}`);
-        const btn = document.getElementById(`tab-${t}`);
-        if (t === tab) {
-          sec.classList.remove('hidden');
-          btn.classList.add('bg-blue-600','text-white','shadow-sm');
-          btn.classList.remove('text-slate-500');
-        } else {
-          sec.classList.add('hidden');
-          btn.classList.remove('bg-blue-600','text-white','shadow-sm');
-          btn.classList.add('text-slate-500');
-        }
-      });
-      if (tab === 'templates') loadTemplates();
-    }
-
-    // ── Printer Holat Paneli ─────────────────────────────
-    const PRINTER_ICONS = {
-      thermal:  { icon: 'fa-receipt',   color: 'text-amber-500',  bg: 'bg-amber-50'  },
-      laser_bw: { icon: 'fa-print',     color: 'text-slate-600',  bg: 'bg-slate-50'  },
-      color:    { icon: 'fa-palette',   color: 'text-pink-500',   bg: 'bg-pink-50'   },
-    };
-
-    async function loadPrinterStatus() {
-      const list = document.getElementById('printerStatusList');
-      try {
-        const res  = await fetch('/api/printers');
-        const data = await res.json();
-        if (!data.success) throw new Error('API xatosi');
-        list.innerHTML = data.printers.map(p => {
-          const meta = PRINTER_ICONS[p.type] || { icon: 'fa-print', color: 'text-slate-400', bg: 'bg-slate-50' };
-          const dot  = p.connected
-            ? '<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse flex-shrink-0"></span>'
-            : '<span class="w-2 h-2 rounded-full bg-slate-300 inline-block flex-shrink-0"></span>';
-          const nameText = p.connected
-            ? `<span class="font-semibold text-slate-800">${p.cups_name || p.label}</span>`
-            : `<span class="text-slate-400">${p.label}</span>`;
-          const stateText = p.connected
-            ? '<span class="text-[10px] text-emerald-600 font-medium">Ulangan</span>'
-            : '<span class="text-[10px] text-slate-400">Ulanmagan</span>';
-          return `<div class="flex items-center gap-3 px-3 py-2 rounded-xl ${p.connected ? 'bg-emerald-50/60 border border-emerald-100' : 'bg-slate-50 border border-slate-100'}">
-            <div class="w-8 h-8 rounded-lg ${meta.bg} flex items-center justify-center flex-shrink-0">
-              <i class="fa-solid ${meta.icon} text-sm ${meta.color}"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-xs flex items-center gap-1.5">${dot} ${nameText}</div>
-              <div class="mt-0.5">${stateText}</div>
-            </div>
-          </div>`;
-        }).join('');
-        updateRoutingHint();
-      } catch (e) {
-        list.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">Printerlar aniqlanmadi</div>';
-      }
-    }
-
-    function updateRoutingHint() {
-      const colorMode = document.querySelector('input[name="color_mode"]:checked')?.value || 'gray';
-      const hintEl    = document.getElementById('routingHint');
-      const hintText  = document.getElementById('routingHintText');
-      const HINTS = { gray: 'Oq-qora → Canon lazer printerga yuboriladi', color: 'Rangli → Rangli printerga yuboriladi' };
-      hintText.textContent = HINTS[colorMode] || '';
-      hintEl.classList.remove('hidden');
-    }
-    document.querySelectorAll('input[name="color_mode"]').forEach(r => r.addEventListener('change', updateRoutingHint));
-    loadPrinterStatus();
-    setInterval(loadPrinterStatus, 30000);
-
-    // ── Shablonlar ───────────────────────────────────────
-    let allTemplates = [];
-    let selectedTemplate = null;
-
-    async function loadTemplates() {
-      if (allTemplates.length > 0) { renderTemplates(allTemplates); return; }
-      try {
-        const res  = await fetch('/api/templates');
-        const data = await res.json();
-        allTemplates = data.templates || [];
-        renderTemplates(allTemplates);
-      } catch(e) {
-        document.getElementById('templateGrid').innerHTML =
-          '<div class="col-span-2 text-center text-xs text-red-400 py-6">Shablonlar yuklanmadi</div>';
-      }
-    }
-
-    function renderTemplates(list) {
-      const grid = document.getElementById('templateGrid');
-      if (!list.length) {
-        grid.innerHTML = '<div class="col-span-2 text-center text-xs text-slate-400 py-6">Shablonlar topilmadi</div>';
-        return;
-      }
-      grid.innerHTML = list.map(t => `
-        <div onclick="openTemplateModal(${JSON.stringify(t).replace(/"/g,'&quot;')})"
-          class="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm cursor-pointer hover:border-blue-400 hover:shadow-md transition-all active:scale-95">
-          <div class="w-10 h-10 rounded-xl ${t.color ? 'bg-pink-50' : 'bg-blue-50'} flex items-center justify-center mb-2">
-            <i class="fa-solid fa-file-pdf text-xl ${t.color ? 'text-pink-500' : 'text-blue-500'}"></i>
-          </div>
-          <div class="text-xs font-bold text-slate-800 leading-tight mb-0.5">${t.name}</div>
-          <div class="text-[10px] text-slate-400 leading-tight mb-2 line-clamp-2">${t.description}</div>
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold text-blue-600">${t.price_per_page.toLocaleString()} so'm</span>
-            ${t.file_exists
-              ? '<span class="text-[10px] text-emerald-600 font-medium">✓ Mavjud</span>'
-              : '<span class="text-[10px] text-slate-400">Fayl yo\'q</span>'}
-          </div>
-        </div>`).join('');
-    }
-
-    function filterTemplates(cat) {
-      document.querySelectorAll('.filter-btn').forEach(b => {
-        b.classList.remove('bg-blue-600','text-white');
-        b.classList.add('text-slate-500');
-      });
-      const activeId = cat ? `filter-${cat}` : 'filter-all';
-      const activeBtn = document.getElementById(activeId);
-      if (activeBtn) { activeBtn.classList.add('bg-blue-600','text-white'); activeBtn.classList.remove('text-slate-500'); }
-      const filtered = cat ? allTemplates.filter(t => t.category === cat) : allTemplates;
-      renderTemplates(filtered);
-    }
-
-    function openTemplateModal(tmpl) {
-      selectedTemplate = tmpl;
-      document.getElementById('tmplModalName').textContent  = tmpl.name;
-      document.getElementById('tmplModalDesc').textContent  = tmpl.description;
-      document.getElementById('tmplModalPrice').textContent = `${tmpl.price_per_page.toLocaleString()} so'm/bet`;
-      document.getElementById('templateModal').classList.remove('hidden');
-      document.getElementById('tmplPrintBtn').onclick   = () => printTemplate(tmpl);
-      document.getElementById('tmplDeleteBtn').onclick  = () => deleteTemplate(tmpl);
-    }
-    function closeTemplateModal() {
-      document.getElementById('templateModal').classList.add('hidden');
-    }
-
-    async function deleteTemplate(tmpl) {
-      closeTemplateModal();
-      const confirmed = await Swal.fire({
-        icon:'warning', title:"O'chirishni tasdiqlang",
-        text:`"${tmpl.name}" shabloni o'chiriladi!`,
-        showCancelButton:true, confirmButtonColor:'#e11d48',
-        cancelButtonText:'Bekor', confirmButtonText:"Ha, o'chir"
-      });
-      if (!confirmed.isConfirmed) return;
-      try {
-        const res  = await fetch(`/api/admin/templates/delete/${tmpl.id}`, { method:'DELETE' });
-        const data = await res.json();
-        allTemplates = []; // Cache tozalash
-        loadTemplates();
-        Swal.fire({ icon: data.success?'success':'error', title: data.message,
-          timer:2000, showConfirmButton:false });
-      } catch(e) {
-        Swal.fire({ icon:'error', title:'Xatolik', text:'Server bilan bog\'lanishda xatolik' });
-      }
-    }
-
-    // ── Admin: shablon yuklash ───────────────────────────
-    function openAdminUpload() {
-      document.getElementById('adminUploadModal').classList.remove('hidden');
-    }
-    function closeAdminUpload() {
-      document.getElementById('adminUploadModal').classList.add('hidden');
-      document.getElementById('adminUploadForm').reset();
-      document.getElementById('adminFileName').textContent = 'PDF yoki DOCX tanlang';
-    }
-
-    document.getElementById('adminFileInput')?.addEventListener('change', function() {
-      const nameEl = document.getElementById('adminFileName');
-      if (this.files[0]) {
-        nameEl.textContent = '📎 ' + this.files[0].name;
-        nameEl.classList.add('text-emerald-600');
-        // Fayl nomini "Nom" maydoniga avtomatik yozish
-        const autoName = this.files[0].name.replace(/\.(pdf|docx)$/i,'').replace(/_/g,' ');
-        const nameInput = document.getElementById('adminTmplName');
-        if (!nameInput.value) nameInput.value = autoName;
-      }
-    });
-
-    document.getElementById('adminUploadForm')?.addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const btn = document.getElementById('adminUploadBtn');
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Yuklanmoqda...';
-
-      const formData = new FormData(this);
-      // checkbox fix
-      if (!formData.get('color')) formData.set('color','false');
-
-      try {
-        const res  = await fetch('/api/admin/templates/upload', { method:'POST', body: formData });
-        const data = await res.json();
-        if (data.success) {
-          closeAdminUpload();
-          allTemplates = []; // Cache tozalash
-          loadTemplates();
-          Swal.fire({ icon:'success', title: data.message,
-            timer:2500, showConfirmButton:false });
-        } else {
-          Swal.fire({ icon:'error', title:'Xatolik', text: data.message, confirmButtonColor:'#e11d48' });
-        }
-      } catch(err) {
-        Swal.fire({ icon:'error', title:'Aloqa xatosi', text:'Server bilan bog\'lanishda xatolik' });
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-upload mr-1"></i>Yuklash';
-      }
-    });
-
-    async function printTemplate(tmpl) {
-      if (!tmpl.file_exists) {
-        Swal.fire({ icon:'warning', title:'Fayl topilmadi',
-          text:`"${tmpl.file}" faylini templates_files/ papkasiga joylashtiring.`,
-          confirmButtonColor:'#e11d48' }); return;
-      }
-      closeTemplateModal();
-      Swal.fire({ title:'Chop etilmoqda...', allowOutsideClick:false, didOpen:()=>Swal.showLoading() });
-      try {
-        const res = await fetch('/api/templates/print', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ template_id: tmpl.id, copies:1, payment_method:'card', amount: tmpl.price_per_page })
-        });
-        const data = await res.json();
-        Swal.fire({ icon: data.success?'success':'error', title: data.success?'Chop etildi!':'Xatolik',
-          text: data.message, confirmButtonColor: data.success?'#2563eb':'#e11d48' });
-      } catch(e) {
-        Swal.fire({ icon:'error', title:'Xatolik', text:'Server bilan bog\'lanishda xatolik', confirmButtonColor:'#e11d48' });
-      }
-    }
-
-    // ── AI Writer ────────────────────────────────────────
-    let currentDocId = null;
-
-    document.getElementById('aiImageInput')?.addEventListener('change', function() {
-      const nameEl = document.getElementById('aiImageName');
-      if (this.files[0]) { nameEl.textContent = '📎 ' + this.files[0].name; nameEl.classList.remove('hidden'); }
-      else { nameEl.classList.add('hidden'); }
-    });
-
-    document.getElementById('aiForm')?.addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const btn = document.getElementById('aiWriteBtn');
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI yozmoqda...';
-
-      const formData = new FormData(this);
-      const content = formData.get('content') || '';
-      const imageFile = formData.get('image');
-      if (!content && (!imageFile || !imageFile.size)) {
-        Swal.fire({ icon:'warning', title:'Mazmun kerak', text:'Hujjat mazmunini yozing yoki rasm yuklang.', confirmButtonColor:'#7c3aed' });
-        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin'; return;
-      }
-
-      try {
-        const res  = await fetch('/api/ai/write', { method:'POST', body: formData });
-        const data = await res.json();
-        if (data.success) {
-          currentDocId = data.doc_id;
-          document.getElementById('aiResult').classList.remove('hidden');
-          document.getElementById('aiTextPreview').textContent = data.text;
-          document.getElementById('aiWordCount').textContent = `${data.word_count} so'z`;
-          document.getElementById('aiDownloadBtn').href = data.download_url;
-
-          // Narx ko'rsatish
-          const priceBox = document.getElementById('aiPriceBox');
-          priceBox.classList.remove('hidden');
-          document.getElementById('aiWriteFee').textContent  = (data.price.ai_fee   || 0).toLocaleString() + ' so\'m';
-          document.getElementById('aiPrintFee').textContent  = (data.price.print_fee|| 500).toLocaleString() + ' so\'m';
-          document.getElementById('aiTotalFee').textContent  = (data.price.total    || 0).toLocaleString() + ' so\'m';
-
-          document.getElementById('aiResult').scrollIntoView({ behavior:'smooth' });
-        } else {
-          Swal.fire({ icon:'error', title:'Xatolik', text: data.message, confirmButtonColor:'#7c3aed' });
-        }
-      } catch(err) {
-        Swal.fire({ icon:'error', title:'Aloqa xatosi', text:'Server bilan bog\'lanishda xatolik.', confirmButtonColor:'#7c3aed' });
-      } finally {
-        btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
-      }
-    });
-
-    document.getElementById('aiPrintBtn')?.addEventListener('click', async function() {
-      if (!currentDocId) return;
-      this.disabled = true; this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-      try {
-        const totalFeeText = document.getElementById('aiTotalFee').textContent;
-        const amount = totalFeeText.replace(/[^0-9]/g, '');
-        const res = await fetch(`/api/ai/print/${currentDocId}`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ color_mode:'gray', copies:1, amount })
-        });
-        const data = await res.json();
-        Swal.fire({ icon: data.success?'success':'error', title: data.success?'Chop etildi!':'Xatolik',
-          text: data.message, confirmButtonColor: data.success?'#2563eb':'#e11d48' });
-      } catch(e) {
-        Swal.fire({ icon:'error', title:'Xatolik', text:'Printer bilan bog\'lanishda xatolik.', confirmButtonColor:'#e11d48' });
-      } finally {
-        this.disabled = false; this.innerHTML = '<i class="fa-solid fa-print text-xs"></i> Chop Et';
-      }
-    });
-
-  </script>
+  <!-- Asosiy Skript -->
+  <script src="app.js"></script>
 </body>
 </html>
