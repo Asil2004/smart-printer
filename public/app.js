@@ -50,45 +50,66 @@ function switchTab(tab) {
 
 // ----------------- BACKEND ALOQASINI TEKSHIRISH -----------------
 async function checkBackendHealth() {
-  const apiUrl = AppConfig.getApiUrl();
+  let apiUrl = AppConfig.getApiUrl();
   
-  if (!apiUrl) {
-    statusBadge.innerHTML = `
-      <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-      <span class="text-rose-600 font-semibold cursor-pointer" onclick="openSettingsModal()">Server URL kiritilmagan</span>
-    `;
-    return false;
+  statusBadge.innerHTML = `
+    <span class="w-2 h-2 rounded-full bg-amber-500 inline-block animate-pulse"></span>
+    <span>Ulanmoqda...</span>
+  `;
+
+  // 1-urinish: mavjud URL bilan
+  if (apiUrl) {
+    try {
+      const res = await fetch(`${apiUrl}/api/health`, {
+        method: "GET",
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
+      const data = await res.json();
+      if (data.status === "online") {
+        PRICE_BW = data.price_bw || 500;
+        PRICE_COLOR = data.price_color || 1500;
+        statusBadge.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+          <span class="text-emerald-700 font-semibold truncate max-w-[140px]">${data.printer || "Printer tayyor"}</span>
+        `;
+        updatePricing();
+        loadPrinterStatus();
+        return true;
+      }
+    } catch (e) {
+      console.warn("Mavjud URL ishlamadi, avtomatik yangi URL qidirilmoqda...", e);
+    }
   }
 
+  // 2-urinish: Avtomatik eng yangi jonli URL ni topish (Auto-Discovery)
   try {
-    statusBadge.innerHTML = `
-      <span class="w-2 h-2 rounded-full bg-amber-500 inline-block animate-pulse"></span>
-      <span>Tekshirilmoqda...</span>
-    `;
-
-    const res = await fetch(`${apiUrl}/api/health`, {
-      method: "GET",
-      headers: { "ngrok-skip-browser-warning": "true" }
-    });
-    const data = await res.json();
-
-    if (data.status === "online") {
-      PRICE_BW = data.price_bw || 500;
-      PRICE_COLOR = data.price_color || 1500;
-      statusBadge.innerHTML = `
-        <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-        <span class="text-emerald-700 font-semibold truncate max-w-[140px]">${data.printer || "Printer tayyor"}</span>
-      `;
-      updatePricing();
-      loadPrinterStatus();
-      return true;
+    const liveUrl = await AppConfig.fetchLatestLiveUrl();
+    if (liveUrl && liveUrl !== apiUrl) {
+      const res = await fetch(`${liveUrl}/api/health`, {
+        method: "GET",
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
+      const data = await res.json();
+      if (data.status === "online") {
+        PRICE_BW = data.price_bw || 500;
+        PRICE_COLOR = data.price_color || 1500;
+        statusBadge.innerHTML = `
+          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+          <span class="text-emerald-700 font-semibold truncate max-w-[140px]">${data.printer || "Printer tayyor"}</span>
+        `;
+        updatePricing();
+        loadPrinterStatus();
+        return true;
+      }
     }
   } catch (err) {
-    statusBadge.innerHTML = `
-      <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-      <span class="text-rose-600 font-semibold cursor-pointer" onclick="openSettingsModal()">Terminal oflayn</span>
-    `;
+    console.warn("Auto-discovery xatosi:", err);
   }
+
+  statusBadge.innerHTML = `
+    <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
+    <span class="text-rose-600 font-semibold cursor-pointer" onclick="openSettingsModal()">Terminal oflayn (⚙️)</span>
+  `;
   return false;
 }
 

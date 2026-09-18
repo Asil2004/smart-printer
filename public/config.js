@@ -59,10 +59,30 @@ const AppConfig = {
     if (this.DEFAULT_API_URL && this.DEFAULT_API_URL.trim()) {
       return this.DEFAULT_API_URL.trim().replace(/\/+$/, "");
     }
-    if (window.location.hostname !== "localhost" && !window.location.hostname.includes("netlify.app")) {
+    if (window.location.hostname !== "localhost" && 
+        !window.location.hostname.includes("netlify.app") && 
+        !window.location.hostname.includes("github.io")) {
       return window.location.origin;
     }
     return "";
+  },
+
+  async fetchLatestLiveUrl() {
+    try {
+      const res = await fetch("https://ntfy.sh/smart_printer_asil2004_tunnel_url/json?poll=1&since=all", { cache: "no-store" });
+      const text = await res.text();
+      const msgs = text.trim().split("\n")
+        .map(line => { try { return JSON.parse(line); } catch(e) { return null; } })
+        .filter(m => m && m.event === "message" && m.message && m.message.startsWith("http"));
+      if (msgs.length > 0) {
+        const liveUrl = msgs[msgs.length - 1].message.trim().replace(/\/+$/, "");
+        this.DEFAULT_API_URL = liveUrl;
+        return liveUrl;
+      }
+    } catch (e) {
+      console.warn("Dinamik URL olishda xatolik:", e);
+    }
+    return this.getApiUrl();
   },
 
   setApiUrl(url) {
@@ -73,4 +93,5 @@ const AppConfig = {
     }
   }
 };
+
 
