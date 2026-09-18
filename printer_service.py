@@ -190,50 +190,114 @@ class PrinterService:
         return {"success": True, "message": output_msg, "job_output": output_msg}
 
     # ──────────────────────────────────────────────────────
-    # ESC/POS orqali to'g'ridan-to'g'ri chop etish
+    # Termal printer (XP-58 / 58mm) to'g'ridan-to'g'ri chop etish
     # ──────────────────────────────────────────────────────
 
-    def _print_via_escpos(self, ready_file: Path, options: dict) -> dict:
+    def print_to_thermal(self, target, copies: int = 1) -> dict:
         """
-        python-escpos kutubxonasi orqali XP-58 IIL USB ga to'g'ridan-to'g'ri yuboradi.
-        CUPS o'rnatilmagan hollarda yoki tez test uchun ishlatiladi.
+        XP-58 / 58mm termal printer uchun to'g'ridan-to'g'ri ESC/POS chop etish.
+        Matn, PDF, DOCX va Rasmlarni 384px termal lentaga moslab chiqaradi.
         """
+        import time
+        import glob
+        import uuid
         try:
-            from escpos.printer import Usb
+            from escpos.printer import File
         except ImportError:
-            raise RuntimeError(
-                "python-escpos o'rnatilmagan! Buyruq: pip install python-escpos"
-            )
+            raise RuntimeError("python-escpos o'rnatilmagan!")
 
-        suffix = ready_file.suffix.lower()
-        if suffix != ".pdf":
-            raise ValueError(
-                "ESC/POS rejimida faqat PNG/JPG (rasm) fayllari qo'llab-quvvatlanadi. "
-                "PDF/DOCX uchun CUPS rejimidan foydalaning."
-            )
+        # /dev/usb/lp0 ruxsatlarini tekshirish
+        dev_file = "/dev/usb/lp0"
+        if not os.path.exists(dev_file):
+            raise RuntimeError(f"Termal printer {dev_file} ulanmagan! USB kabelni tekshiring.")
 
         try:
-            printer = Usb(config.ESCPOS_VENDOR_ID, config.ESCPOS_PRODUCT_ID)
-            logger.info(
-                f"ESC/POS USB ulandi: VID=0x{config.ESCPOS_VENDOR_ID:04X} "
-                f"PID=0x{config.ESCPOS_PRODUCT_ID:04X}"
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"USB printerga ulanib bo'lmadi (VID=0x{config.ESCPOS_VENDOR_ID:04X}, "
-                f"PID=0x{config.ESCPOS_PRODUCT_ID:04X}): {e}\n"
-                "Tekshiring: lsusb | grep -i printer"
-            )
+            os.chmod(dev_file, 0o666)
+        except Exception:
+            pass
 
-        # Rasm chop etish (ESC/POS faqat PNG/JPG ni to'g'ridan-to'g'ri qabul qiladi)
-        printer.image(str(ready_file), impl="bitImageColumn")
-        printer.cut()
+        printer = File(dev_file)
+        copies = max(1, min(copies, 10))
+
+        for _ in range(copies):
+            # 1. Agar target matn bo'lsa (yoki .txt fayl)
+            if isinstance(target, str) and (not Path(target).exists() or Path(target).suffix == ".txt"):
+                text_content = target
+                if Path(target).exists() and Path(target).suffix == ".txt":
+                    text_content = Path(target).read_text(encoding="utf-8")
+                    
+                printer.set(align="center", bold=True)
+                printer.text("================================\n")
+                printer.text("       SMART WEB-PRINTCHI       \n")
+                printer.text("================================\n\n")
+                printer.set(align="left", bold=False)
+                printer.text(text_content + "\n\n")
+                printer.set(align="center", bold=False)
+                printer.text("--------------------------------\n")
+                printer.text(time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+                printer.text("================================\n\n\n")
+                printer.cut()
+                continue
+
+            # 2. Agar target fayl bo'lsa (PDF, DOCX, Rasm)
+            fpath = Path(target)
+            ready_pdf = fpath
+            if fpath.suffix.lower() == ".docx":
+                ready_pdf = self.convert_docx_to_pdf(fpath)
+
+            if ready_pdf.suffix.lower() == ".pdf":
+                tmp_prefix = f"/tmp/thermal_{uuid.uuid4().hex[:6]}"
+                subprocess.run(["pdftoppm", "-png", "-r", "150", str(ready_pdf), tmp_prefix], check=True)
+                pages = sorted(glob.glob(f"{tmp_prefix}-*.png"))
+
+                printer.set(align="center", bold=True)
+                printer.text("================================\n")
+                printer.text("       SMART WEB-PRINTCHI       \n")
+                printer.text("================================\n\n")
+
+                for page in pages:
+                    img = Image.open(page).convert("RGB")
+                    w, h = img.size
+                    new_w = 384
+                    new_h = int(h * (384 / w))
+                    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    bw_img = img.convert("1")
+                    tmp_p = f"{tmp_prefix}_p.png"
+                    bw_img.save(tmp_p)
+                    printer.image(tmp_p, impl="bitImageColumn")
+                    printer.text("\n")
+                    Path(page).unlink(missing_ok=True)
+                    Path(tmp_p).unlink(missing_ok=True)
+
+                printer.set(align="center", bold=False)
+                printer.text("\n--------------------------------\n")
+                printer.text(time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+                printer.text("================================\n\n\n")
+                printer.cut()
+
+            elif fpath.suffix.lower() in [".png", ".jpg", ".jpeg"]:
+                img = Image.open(fpath).convert("RGB")
+                w, h = img.size
+                new_w = 384
+                new_h = int(h * (384 / w))
+                img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                bw_img = img.convert("1")
+                tmp_p = f"/tmp/thermal_img_{uuid.uuid4().hex[:6]}.png"
+                bw_img.save(tmp_p)
+
+                printer.set(align="center", bold=True)
+                printer.text("================================\n\n")
+                printer.image(tmp_p, impl="bitImageColumn")
+                printer.text("\n\n")
+                printer.text("================================\n\n\n")
+                printer.cut()
+                Path(tmp_p).unlink(missing_ok=True)
+
         printer.close()
-
         return {
             "success": True,
-            "message": f"ESC/POS orqali muvaffaqiyatli chop etildi: {ready_file.name}",
-            "job_output": "escpos-direct"
+            "message": f"Termal printerda muvaffaqiyatli chop etildi (x{copies})",
+            "job_output": "thermal-direct"
         }
 
     # ──────────────────────────────────────────────────────
@@ -243,25 +307,13 @@ class PrinterService:
     def print_job(self, file_path: str, options: dict) -> dict:
         """
         Faylni chop etadi. PRINT_MODE sozlamasiga qarab CUPS yoki ESC/POS ishlatiladi.
-
-        options parametrlari:
-          - copies: int (1-10)
-          - color_mode: 'gray' | 'color'  (termal uchun har doim gray)
-          - orientation: 'portrait' | 'landscape'
-          - duplex: 'one-sided' | 'two-sided'  (termal uchun har doim one-sided)
-          - page_ranges: str (masalan: '1-3' yoki '')
         """
-        ready_file = self.prepare_file(file_path)
-
-        if self.print_mode == "escpos":
-            logger.info("ESC/POS rejimida chop etilmoqda...")
-            # ESC/POS faqat rasmlarni qabul qiladi — avval PNG ga o'tkazish
-            orig_path = Path(file_path)
-            if orig_path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
-                return self._print_via_escpos(orig_path, options)
-            else:
-                logger.warning("ESC/POS PDF qo'llab-quvvatlamaydi, CUPS ga o'tildi.")
-                return self._print_via_cups(ready_file, options)
+        if self.print_mode == "escpos" or options.get("printer_type") == "thermal":
+            logger.info("Termal ESC/POS rejimida chop etilmoqda...")
+            copies = int(options.get("copies", 1))
+            return self.print_to_thermal(file_path, copies=copies)
         else:
+            ready_file = self.prepare_file(file_path)
             logger.info("CUPS rejimida chop etilmoqda...")
             return self._print_via_cups(ready_file, options)
+

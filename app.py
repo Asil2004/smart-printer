@@ -21,8 +21,10 @@ from werkzeug.utils import secure_filename
 from PIL import Image
 from pypdf import PdfReader
 
-# Smart printer routing moduli
+# Smart printer routing & service moduli
 from printer_detector import get_printer_for_job, get_all_printer_status, detect_connected_printers
+from printer_service import PrinterService
+printer_service = PrinterService()
 
 # AI Writer moduli
 try:
@@ -427,6 +429,27 @@ def print_document():
     if len(recent_orders) > 50:
         recent_orders.pop(0)
 
+    # ── Termal printer (XP-58) to'g'ridan-to'g'ri chop etish ──
+    if routing["type"] == "thermal":
+        try:
+            printer_service.print_to_thermal(saved_path, copies=copies)
+            return jsonify({
+                "success":        True,
+                "simulated":      False,
+                "message":        f"Hujjat [{selected_printer}] termal printerda muvaffaqiyatli chop etildi!",
+                "printer":        selected_printer,
+                "printer_type":   routing["type"],
+                "routing_reason": routing_reason,
+                "copies":         copies,
+                "order":          order_info,
+            })
+        except Exception as e:
+            logger.error(f"Termal printer xatosi: {e}")
+            return jsonify({
+                "success": False,
+                "message": f"Termal printer xatosi [{selected_printer}]: {str(e)}"
+            }), 500
+
     # ── Simulyatsiya rejimi (Windows / test) ─────────────
     if not shutil.which("lp"):
         logger.warning("CUPS 'lp' topilmadi. Simulyatsiya qilindi.")
@@ -441,7 +464,7 @@ def print_document():
             "order":          order_info,
         })
 
-    # ── Haqiqiy CUPS ijrosi ───────────────────────────────
+    # ── Haqiqiy CUPS ijrosi (Lazer / Rangli printerlar) ────
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         cups_output = proc.stdout.strip() or "Chop etish vazifasi qabul qilindi"
@@ -689,8 +712,16 @@ def print_template():
     amount         = data.get("amount", str(total_price))
     logger.info(f"Shablon chop etish: {template['name']} x{copies} → [{printer}] | {amount} so'm")
 
-    # CUPS orqali chop etish
-    if shutil.which("lp"):
+    # ── Termal printer (XP-58) to'g'ridan-to'g'ri chop etish ──
+    if routing.get("type") == "thermal":
+        try:
+            printer_service.print_to_thermal(file_path, copies=copies)
+            msg = f"Shablon [{template['name']}] termal printerda muvaffaqiyatli chop etildi!"
+        except Exception as e:
+            logger.error(f"Termal shablon chop etish xatosi: {e}")
+            return jsonify({"success": False, "message": f"Termal printer xatosi: {str(e)}"}), 500
+    # CUPS orqali chop etish (Lazer / Rangli)
+    elif shutil.which("lp"):
         cmd = ["lp", "-d", printer, "-n", str(copies),
                "-o", f"media={routing['media']}", str(file_path)]
         try:
@@ -864,7 +895,15 @@ def ai_print(doc_id: str):
     amount = data.get("amount", "0")
     logger.info(f"AI hujjat chop etish: {docx_path.name} → [{printer}] | {amount} so'm")
 
-    if shutil.which("lp"):
+    # ── Termal printer (XP-58) to'g'ridan-to'g'ri chop etish ──
+    if routing.get("type") == "thermal":
+        try:
+            printer_service.print_to_thermal(docx_path, copies=copies)
+        except Exception as e:
+            logger.error(f"Termal AI hujjat chop etish xatosi: {e}")
+            return jsonify({"success": False, "message": f"Termal printer xatosi: {str(e)}"}), 500
+    # CUPS orqali chop etish (Lazer / Rangli)
+    elif shutil.which("lp"):
         cmd = ["lp", "-d", printer, "-n", str(copies),
                "-o", f"media={media}", "-o", "ColorModel=Gray", str(ready_file)]
         try:
