@@ -13,8 +13,8 @@ const AppConfig = {
     return atob("QVEuQWI4Uk42TFNiWGt4X2JMV1Z6S2tRbk5HTnBGaTN1OTBYY2FpWFhScV83S2xfaHlKc2c=");
   },
 
-  // Raspberry Pi Ngrok doimiy URL (setup_autostart.sh dagi bilan mos bo'lsin)
-  DEFAULT_API_URL: "https://snazzy-chosen-lyricism.ngrok-free.dev",
+  // Raspberry Pi Cloudflare / Ngrok doimiy URL
+  DEFAULT_API_URL: "https://relation-heated-ladder-mpg.trycloudflare.com",
 
   // To'lov tizimi sozlamalari
   // ⚠️ cardNumber ni TO'LIQ kiriting: "8600 1234 5678 9012"
