@@ -50,22 +50,42 @@ function switchTab(tab) {
 
 // ----------------- BACKEND ALOQASINI TEKSHIRISH -----------------
 async function checkBackendHealth() {
-  let apiUrl = AppConfig.getApiUrl();
-  
   statusBadge.innerHTML = `
     <span class="w-2 h-2 rounded-full bg-amber-500 inline-block animate-pulse"></span>
     <span>Ulanmoqda...</span>
   `;
 
-  // 1-urinish: mavjud URL bilan
-  if (apiUrl) {
+  const candidates = [];
+  const manual = localStorage.getItem("PRINTCHI_API_URL");
+  if (manual && manual.trim()) candidates.push(manual.trim().replace(/\/+$/, ""));
+
+  // Dinamik ntfy dan eng so'nggi jonli URL ni olish
+  try {
+    const live = await AppConfig.fetchLatestLiveUrl();
+    if (live && !candidates.includes(live)) candidates.push(live);
+  } catch(e) {}
+
+  if (AppConfig.DEFAULT_API_URL && !candidates.includes(AppConfig.DEFAULT_API_URL)) {
+    candidates.push(AppConfig.DEFAULT_API_URL);
+  }
+
+  // Lokal tarmoq manzili
+  if (window.location.hostname !== "localhost" && 
+      !window.location.hostname.includes("netlify.app") && 
+      !window.location.hostname.includes("github.io")) {
+    candidates.push(window.location.origin);
+  }
+
+  for (const url of candidates) {
+    if (!url) continue;
     try {
-      const res = await fetch(`${apiUrl}/api/health`, {
+      const res = await fetch(`${url}/api/health`, {
         method: "GET",
         headers: { "ngrok-skip-browser-warning": "true" }
       });
       const data = await res.json();
       if (data.status === "online") {
+        AppConfig._activeUrl = url;
         PRICE_BW = data.price_bw || 500;
         PRICE_COLOR = data.price_color || 1500;
         statusBadge.innerHTML = `
@@ -77,33 +97,8 @@ async function checkBackendHealth() {
         return true;
       }
     } catch (e) {
-      console.warn("Mavjud URL ishlamadi, avtomatik yangi URL qidirilmoqda...", e);
+      console.warn(`URL ishlamadi: ${url}`);
     }
-  }
-
-  // 2-urinish: Avtomatik eng yangi jonli URL ni topish (Auto-Discovery)
-  try {
-    const liveUrl = await AppConfig.fetchLatestLiveUrl();
-    if (liveUrl && liveUrl !== apiUrl) {
-      const res = await fetch(`${liveUrl}/api/health`, {
-        method: "GET",
-        headers: { "ngrok-skip-browser-warning": "true" }
-      });
-      const data = await res.json();
-      if (data.status === "online") {
-        PRICE_BW = data.price_bw || 500;
-        PRICE_COLOR = data.price_color || 1500;
-        statusBadge.innerHTML = `
-          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-          <span class="text-emerald-700 font-semibold truncate max-w-[140px]">${data.printer || "Printer tayyor"}</span>
-        `;
-        updatePricing();
-        loadPrinterStatus();
-        return true;
-      }
-    }
-  } catch (err) {
-    console.warn("Auto-discovery xatosi:", err);
   }
 
   statusBadge.innerHTML = `

@@ -51,7 +51,12 @@ const AppConfig = {
     }
   },
 
+  _activeUrl: "",
+
   getApiUrl() {
+    if (this._activeUrl) {
+      return this._activeUrl.replace(/\/+$/, "");
+    }
     const saved = localStorage.getItem("PRINTCHI_API_URL");
     if (saved && saved.trim()) {
       return saved.trim().replace(/\/+$/, "");
@@ -76,6 +81,7 @@ const AppConfig = {
         .filter(m => m && m.event === "message" && m.message && m.message.startsWith("http"));
       if (msgs.length > 0) {
         const liveUrl = msgs[msgs.length - 1].message.trim().replace(/\/+$/, "");
+        this._activeUrl = liveUrl;
         this.DEFAULT_API_URL = liveUrl;
         return liveUrl;
       }
@@ -87,8 +93,10 @@ const AppConfig = {
 
   setApiUrl(url) {
     if (url) {
-      localStorage.setItem("PRINTCHI_API_URL", url.trim().replace(/\/+$/, ""));
+      this._activeUrl = url.trim().replace(/\/+$/, "");
+      localStorage.setItem("PRINTCHI_API_URL", this._activeUrl);
     } else {
+      this._activeUrl = "";
       localStorage.removeItem("PRINTCHI_API_URL");
     }
   }
