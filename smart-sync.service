@@ -1,0 +1,15 @@
+﻿[Unit]
+Description=Smart Printer Dynamic Tunnel Sync
+After=network-online.target smart-cloudflared.service
+Wants=network-online.target smart-cloudflared.service
+
+[Service]
+Type=simple
+User=cail
+WorkingDirectory=/home/cail/smart-printchi
+ExecStart=/home/cail/smart-printchi/venv/bin/python /home/cail/smart-printchi/tunnel_sync.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
