@@ -228,9 +228,11 @@ def _call_gemini_rest(prompt: str, image_bytes: bytes = None, image_mime: str = 
 
     # Modellarni tartib bilan tekshirish
     models_to_try = [
+        ("v1beta", "gemini-3-flash-preview"),
         ("v1beta", "gemini-3.6-flash"),
-        ("v1alpha", "gemini-3.8-flash"),
-        ("v1beta", "gemini-2.0-flash"),
+        ("v1beta", "gemini-3.5-flash"),
+        ("v1beta", "gemini-3.7-flash"),
+        ("v1beta", "gemini-3.1-flash-lite"),
     ]
 
     last_err = None
