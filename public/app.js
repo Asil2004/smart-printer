@@ -56,36 +56,69 @@ async function checkBackendHealth() {
   `;
 
   const candidates = [];
-  const manual = localStorage.getItem("PRINTCHI_API_URL");
-  if (manual && manual.trim()) candidates.push(manual.trim().replace(/\/+$/, ""));
 
-  // Dinamik ntfy dan eng so'nggi jonli URL ni olish
-  try {
-    const live = await AppConfig.fetchLatestLiveUrl();
-    if (live && !candidates.includes(live)) candidates.push(live);
-  } catch(e) {}
+  // 1. Agar foydalanuvchi bevosita backend (Cloudflare, localhost yoki lokal IP) da bo'lsa:
+  if (!window.location.hostname.includes("netlify.app") && !window.location.hostname.includes("github.io")) {
+    candidates.push(window.location.origin);
+  }
 
+  // 2. Doimiy konfiguratsiya qilingan DEFAULT_API_URL
   if (AppConfig.DEFAULT_API_URL && !candidates.includes(AppConfig.DEFAULT_API_URL)) {
     candidates.push(AppConfig.DEFAULT_API_URL);
   }
 
-  // Lokal tarmoq manzili
-  if (window.location.hostname !== "localhost" && 
-      !window.location.hostname.includes("netlify.app") && 
-      !window.location.hostname.includes("github.io")) {
-    candidates.push(window.location.origin);
+  // 3. Foydalanuvchi qo'lda kiritgan sozlama (localStorage)
+  const manual = localStorage.getItem("PRINTCHI_API_URL");
+  if (manual && manual.trim() && !candidates.includes(manual.trim())) {
+    candidates.push(manual.trim().replace(/\/+$/, ""));
+  }
+
+  // Har bir nomzod URL ni tezkor tekshirish (maksimal 3 soniya)
+  async function testCandidate(url) {
+    if (!url) return null;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(`${url}/api/health`, {
+        method: "GET",
+        headers: { "ngrok-skip-browser-warning": "true" },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      // nomzod javob bermadi
+    }
+    return null;
   }
 
   for (const url of candidates) {
-    if (!url) continue;
-    try {
-      const res = await fetch(`${url}/api/health`, {
-        method: "GET",
-        headers: { "ngrok-skip-browser-warning": "true" }
-      });
-      const data = await res.json();
-      if (data.status === "online") {
-        AppConfig._activeUrl = url;
+    const data = await testCandidate(url);
+    if (data && data.status === "online") {
+      AppConfig._activeUrl = url;
+      AppConfig.setApiUrl(url);
+      PRICE_BW = data.price_bw || 500;
+      PRICE_COLOR = data.price_color || 1500;
+      statusBadge.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+        <span class="text-emerald-700 font-semibold truncate max-w-[140px]">${data.printer || "Printer tayyor"}</span>
+      `;
+      updatePricing();
+      loadPrinterStatus();
+      return true;
+    }
+  }
+
+  // 4. Dinamik ntfy relaydan eng so'nggi jonli URL ni so'rash
+  try {
+    const live = await AppConfig.fetchLatestLiveUrl();
+    if (live && !candidates.includes(live)) {
+      const data = await testCandidate(live);
+      if (data && data.status === "online") {
+        AppConfig._activeUrl = live;
+        AppConfig.setApiUrl(live);
         PRICE_BW = data.price_bw || 500;
         PRICE_COLOR = data.price_color || 1500;
         statusBadge.innerHTML = `
@@ -96,10 +129,8 @@ async function checkBackendHealth() {
         loadPrinterStatus();
         return true;
       }
-    } catch (e) {
-      console.warn(`URL ishlamadi: ${url}`);
     }
-  }
+  } catch(e) {}
 
   statusBadge.innerHTML = `
     <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>

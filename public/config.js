@@ -54,6 +54,13 @@ const AppConfig = {
   _activeUrl: "",
 
   getApiUrl() {
+    // Agar foydalanuvchi bevosita backend serverida (Cloudflare yoki lokal IP) bo'lsa
+    if (window.location.hostname.includes("trycloudflare.com") ||
+        (window.location.hostname !== "localhost" && 
+         !window.location.hostname.includes("netlify.app") && 
+         !window.location.hostname.includes("github.io"))) {
+      return window.location.origin;
+    }
     if (this._activeUrl) {
       return this._activeUrl.replace(/\/+$/, "");
     }
@@ -64,12 +71,7 @@ const AppConfig = {
     if (this.DEFAULT_API_URL && this.DEFAULT_API_URL.trim()) {
       return this.DEFAULT_API_URL.trim().replace(/\/+$/, "");
     }
-    if (window.location.hostname !== "localhost" && 
-        !window.location.hostname.includes("netlify.app") && 
-        !window.location.hostname.includes("github.io")) {
-      return window.location.origin;
-    }
-    return "";
+    return window.location.origin;
   },
 
   async fetchLatestLiveUrl() {

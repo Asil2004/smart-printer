@@ -4,7 +4,7 @@ chcp 65001 > nul
 cls
 
 echo =======================================================
-echo          🖨️ SMART WEB-PRINTCHI SERVERI 🖨️
+echo          [+] SMART WEB-PRINTCHI SERVERI [+]
 echo =======================================================
 echo.
 
