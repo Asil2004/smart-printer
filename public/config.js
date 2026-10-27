@@ -14,7 +14,7 @@ const AppConfig = {
   },
 
   // Raspberry Pi Cloudflare / Ngrok doimiy URL
-  DEFAULT_API_URL: "https://docs-loan-honolulu-army.trycloudflare.com",
+  DEFAULT_API_URL: "https://number-curves-documents-conjunction.trycloudflare.com",
 
   // To'lov tizimi sozlamalari
   // ⚠️ cardNumber ni TO'LIQ kiriting: "8600 1234 5678 9012"
