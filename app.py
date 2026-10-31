@@ -16,7 +16,7 @@ except ImportError:
 import threading
 import subprocess
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image
 from pypdf import PdfReader
@@ -222,6 +222,25 @@ cleanup_thread = threading.Thread(target=background_cleanup_worker, daemon=True)
 cleanup_thread.start()
 
 
+# Telegram bot orqali ogohlantirish yuborish
+def send_telegram_alert(message: str):
+    """Adminning Telegram botiga muhim tizim ogohlantirishlarini jo'natadi."""
+    bot_token = getattr(config, "TELEGRAM_BOT_TOKEN", "") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id   = getattr(config, "TELEGRAM_CHAT_ID", "") or os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not bot_token or not chat_id:
+        return
+    try:
+        import urllib.request
+        import urllib.parse
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = urllib.parse.urlencode({"chat_id": chat_id, "text": message, "parse_mode": "HTML"}).encode()
+        req = urllib.request.Request(url, data=payload, method="POST")
+        urllib.request.urlopen(req, timeout=4)
+        logger.info("Telegram xabarnomasi yuborildi.")
+    except Exception as e:
+        logger.warning(f"Telegram xabarnoma xatosi: {e}")
+
+
 # ----------------- VEB VA API MARSHRUTLARI -----------------
 @app.route("/")
 def index():
@@ -345,9 +364,11 @@ def print_document():
     logger.info(f"Smart Routing: {routing}")
 
     if not routing.get("found"):
+        err_msg = routing.get("reason", "Mos printer topilmadi yoki printer tayyor emas.")
+        send_telegram_alert(f"⚠️ <b>Smart Web-Printchi Ogohlantirish!</b>\nFoydalanuvchi chop etmoqchi bo'ldi, biroq xatolik:\n❌ <code>{err_msg}</code>")
         return jsonify({
             "success": False,
-            "message": f"Printer topilmadi: {routing.get('reason', 'Noma\'lum')}"
+            "message": err_msg
         }), 503
 
     selected_printer = routing["cups_name"]

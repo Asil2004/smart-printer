@@ -53,5 +53,12 @@ PRINT_MODE = os.environ.get("PRINT_MODE", "cups")
 ESCPOS_VENDOR_ID  = int(os.environ.get("ESCPOS_VENDOR_ID",  "0x0416"), 16)  # Winbond/Xprinter
 ESCPOS_PRODUCT_ID = int(os.environ.get("ESCPOS_PRODUCT_ID", "0x5011"), 16)  # XP-58 IIL
 
+# Telegram Admin xabarnomalari (Qog'oz, toner yoki tizim xatolari haqida)
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# Hardware datchiklar (Optik / IR to'siq datchigi GPIO pini)
+PAPER_SENSOR_GPIO_PIN = int(os.environ.get("PAPER_SENSOR_GPIO_PIN", 24))
+
 # Chop etishdan so'ng fayllarni tozalash (saqlash vaqti soniyalarda)
 AUTO_CLEANUP_SECONDS = 300  # 5 daqiqadan so'ng yuklangan faylni o'chirish

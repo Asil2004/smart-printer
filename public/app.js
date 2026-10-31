@@ -227,22 +227,37 @@ async function loadPrinterStatus() {
 
     list.innerHTML = data.printers.map(p => {
       const meta = PRINTER_ICONS[p.type] || { icon: 'fa-print', color: 'text-slate-400', bg: 'bg-slate-50' };
-      const dot  = p.connected
-        ? '<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse flex-shrink-0"></span>'
-        : '<span class="w-2 h-2 rounded-full bg-slate-300 inline-block flex-shrink-0"></span>';
-      const nameText = p.connected
+      const isReady = p.ready !== undefined ? p.ready : p.connected;
+      const isConnected = p.connected;
+      const reason = p.status_reason || (isConnected ? "Tayyor" : "Ulanmagan");
+
+      let dot = '<span class="w-2 h-2 rounded-full bg-slate-300 inline-block flex-shrink-0"></span>';
+      let stateBadge = `<span class="text-[10px] text-slate-400">Ulanmagan</span>`;
+      let cardBg = 'bg-slate-50 border border-slate-100';
+
+      if (isConnected) {
+        if (isReady) {
+          dot = '<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse flex-shrink-0"></span>';
+          stateBadge = '<span class="text-[10px] text-emerald-600 font-medium">✅ Tayyor</span>';
+          cardBg = 'bg-emerald-50/60 border border-emerald-100';
+        } else {
+          dot = '<span class="w-2 h-2 rounded-full bg-rose-500 inline-block animate-ping flex-shrink-0"></span>';
+          stateBadge = `<span class="text-[10px] text-rose-600 font-bold bg-rose-100 px-1.5 py-0.5 rounded">⚠️ ${reason}</span>`;
+          cardBg = 'bg-rose-50/70 border border-rose-200';
+        }
+      }
+
+      const nameText = isConnected
         ? `<span class="font-semibold text-slate-800">${p.cups_name || p.label}</span>`
         : `<span class="text-slate-400">${p.label}</span>`;
-      const stateText = p.connected
-        ? '<span class="text-[10px] text-emerald-600 font-medium">Ulangan</span>'
-        : '<span class="text-[10px] text-slate-400">Ulanmagan</span>';
-      return `<div class="flex items-center gap-3 px-3 py-2 rounded-xl ${p.connected ? 'bg-emerald-50/60 border border-emerald-100' : 'bg-slate-50 border border-slate-100'}">
+
+      return `<div class="flex items-center gap-3 px-3 py-2 rounded-xl ${cardBg}">
         <div class="w-8 h-8 rounded-lg ${meta.bg} flex items-center justify-center flex-shrink-0">
           <i class="fa-solid ${meta.icon} text-sm ${meta.color}"></i>
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-xs flex items-center gap-1.5">${dot} ${nameText}</div>
-          <div class="mt-0.5">${stateText}</div>
+          <div class="mt-0.5">${stateBadge}</div>
         </div>
       </div>`;
     }).join('');
@@ -1065,7 +1080,7 @@ if (confirmPaymentBtn) {
 }
 
 if (printForm) {
-  printForm.addEventListener('submit', (e) => {
+  printForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!fileInput.files.length) {
       Swal.fire({ icon: 'warning', title: 'Fayl tanlanmadi!', text: 'Chop etilishi kerak bo\'lgan faylni yuklang.', confirmButtonColor: '#2563eb' });
@@ -1076,6 +1091,37 @@ if (printForm) {
       Swal.fire({ icon: 'error', title: 'Server ulanmagan!', text: 'Sozlamalar (⚙️) orqali API manzilini kiriting.', confirmButtonColor: '#2563eb' }).then(openSettingsModal);
       return;
     }
+
+    // Chop etish va to'lovdan oldin printerlar holatini va qog'oz zaxirasini tekshirish
+    try {
+      const pRes = await fetch(`${apiUrl}/api/printers`, {
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
+      const pData = await pRes.json();
+      if (pData && pData.printers) {
+        const colorMode = document.querySelector('input[name="color_mode"]:checked')?.value || 'gray';
+        const targetType = colorMode === 'color' ? 'color' : 'laser_bw';
+        let targetPrinter = pData.printers.find(p => p.type === targetType);
+        
+        // Agar lazer bo'lmasa, zaxiradagi termal printer
+        if ((!targetPrinter || !targetPrinter.connected) && colorMode === 'gray') {
+          targetPrinter = pData.printers.find(p => p.type === 'thermal');
+        }
+
+        if (targetPrinter && targetPrinter.connected && targetPrinter.ready === false) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Printer tayyor emas!',
+            html: `Tanlangan printerda muammo mavjud:<br><b class="text-rose-600 font-bold">${targetPrinter.status_reason || "Qog'oz tugagan yoki nosozlik"}</b>.<br><br>Iltimos, qog'oz qo'shing yoki boshqa rejimni tanlang. To'lov qabul qilinmadi.`,
+            confirmButtonColor: '#e11d48'
+          });
+          return;
+        }
+      }
+    } catch(err) {
+      console.warn("Pre-check ogohlantirish:", err);
+    }
+
     openPaymentModal();
   });
 }
