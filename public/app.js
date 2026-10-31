@@ -953,10 +953,14 @@ if (copyCardBtn) {
   });
 }
 
-function openPaymentModal() {
+let currentPollingInterval = null;
+let currentPendingOrderId = null;
+
+async function openPaymentModal() {
   const payCfg = AppConfig.getPaymentConfig();
   const totalPrice = parseInt(totalPriceTxt.textContent.replace(/\s+/g, '')) || 500;
   const copies = parseInt(copiesVal.value) || 1;
+  const apiUrl = AppConfig.getApiUrl();
 
   document.getElementById('modalAmountTxt').textContent = totalPrice.toLocaleString();
   document.getElementById('modalOrderSummary').textContent = `${detectedPages} sahifa • ${copies} nusxa`;
@@ -971,8 +975,55 @@ function openPaymentModal() {
   modalCardHolder.textContent = payCfg.cardHolder || 'PRINT MARKAZ';
   cardBankTxt.textContent = payCfg.cardBank || 'UZCARD / HUMO';
 
+  // 1. Yangi Pending Order yaratish (Webhook va Dinamik QR uchun)
+  const orderFormData = new FormData(printForm);
+  orderFormData.append('amount', totalPrice);
+  orderFormData.append('copies', copies);
+
+  try {
+    const createRes = await fetch(`${apiUrl}/api/order/create`, {
+      method: 'POST',
+      headers: { "ngrok-skip-browser-warning": "true" },
+      body: orderFormData
+    });
+    const orderData = await createRes.json();
+    if (orderData.success) {
+      currentPendingOrderId = orderData.order_id;
+      document.getElementById('qrOrderCodeTxt').textContent = `#${currentPendingOrderId}`;
+
+      // Dinamik QR kod generatsiyasi
+      const qrContainer = document.getElementById('dynamicPayQrCode');
+      qrContainer.innerHTML = '';
+      
+      // Click Deep Link yoki Karta to'lov havolasi
+      let qrPayload = "";
+      if (payCfg.clickMerchantId && payCfg.clickServiceId) {
+        qrPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}&transaction_param=${currentPendingOrderId}`;
+      } else if (cleanCard) {
+        qrPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
+      } else {
+        qrPayload = `SMART_PRINT_ORDER:${currentPendingOrderId}:AMOUNT:${totalPrice}`;
+      }
+
+      new QRCode(qrContainer, {
+        text: qrPayload,
+        width: 176,
+        height: 176,
+        colorDark: "#0f172a",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      // Avtomatik Webhook tekshiruvini boshlash (Polling)
+      startPaymentStatusPolling(currentPendingOrderId);
+    }
+  } catch(err) {
+    console.warn("Order create xatosi:", err);
+  }
+
+  // Click & Payme havolalarini yangilash
   if (payCfg.clickMerchantId && payCfg.clickServiceId) {
-    clickPayLink.href = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}`;
+    clickPayLink.href = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}&transaction_param=${currentPendingOrderId || ''}`;
   } else if (payCfg.clickPhone) {
     const cleanPhone = payCfg.clickPhone.replace(/[^0-9]/g, '');
     clickPayLink.href = `https://my.click.uz/pay/transfer?phone=${cleanPhone}&amount=${totalPrice}`;
@@ -983,7 +1034,7 @@ function openPaymentModal() {
   }
 
   if (payCfg.paymeMerchantId) {
-    const base64Order = btoa(`m=${payCfg.paymeMerchantId};a=${totalPrice * 100}`);
+    const base64Order = btoa(`m=${payCfg.paymeMerchantId};a=${totalPrice * 100};ac.order_id=${currentPendingOrderId || ''}`);
     paymePayLink.href = `https://checkout.paycom.uz/${base64Order}`;
   } else if (cleanCard) {
     paymePayLink.href = `https://payme.uz/fallback/pay/?card=${cleanCard}&amount=${totalPrice * 100}`;
@@ -996,7 +1047,45 @@ function openPaymentModal() {
   paymentModalCard.classList.add('scale-100');
 }
 
+function startPaymentStatusPolling(orderId) {
+  if (currentPollingInterval) clearInterval(currentPollingInterval);
+  const apiUrl = AppConfig.getApiUrl();
+  const statusIndicator = document.getElementById('qrPaymentStatusIndicator');
+  const statusTxt = document.getElementById('qrStatusText');
+
+  currentPollingInterval = setInterval(async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/order/status/${orderId}`, {
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
+      const data = await res.json();
+      if (data.success && data.status === "PAID") {
+        clearInterval(currentPollingInterval);
+        statusIndicator.className = "flex items-center justify-center gap-2 py-1.5 px-3 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-300 max-w-xs mx-auto animate-bounce";
+        statusTxt.textContent = "✅ To‘lov qabul qilindi! Chop etilmoqda...";
+
+        setTimeout(() => {
+          closePaymentModal();
+          Swal.fire({
+            icon: 'success',
+            title: 'Muvaffaqiyatli!',
+            text: `To'lov qabul qilindi va hujjat printerga uzatildi!`,
+            timer: 3500,
+            showConfirmButton: false
+          });
+          fileInput.value = '';
+          fileInfoBox.classList.add('hidden');
+          promptContent.classList.remove('hidden');
+          detectedPages = 1;
+          updatePricing();
+        }, 1200);
+      }
+    } catch(e) {}
+  }, 2000);
+}
+
 function closePaymentModal() {
+  if (currentPollingInterval) clearInterval(currentPollingInterval);
   paymentModal.classList.add('opacity-0', 'pointer-events-none');
   paymentModalCard.classList.remove('scale-100');
   paymentModalCard.classList.add('scale-95');

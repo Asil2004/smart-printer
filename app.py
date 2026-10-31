@@ -535,17 +535,144 @@ def get_recent_orders():
     })
 
 
-# Click / Payme Webhook integratsiyalari (Kelgusida Click Merchant ulanishi uchun)
+# ----------------- TO'LOV VA BUYURTMALAR TARIXI API -----------------
+recent_orders = []
+pending_orders = {}  # { order_id: { file_path, options, amount, status: 'PENDING' | 'PAID' } }
+
+
+@app.route("/api/order/create", methods=["POST"])
+def create_pending_order():
+    """
+    To'lovdan oldin buyurtma va unikal to'lov kodini yaratadi.
+    Faylni vaqtinchalik saqlaydi va Dinamik QR / Webhook uchun tayyorlaydi.
+    """
+    if "file" not in request.files:
+        return jsonify({"success": False, "message": "Fayl tanlanmadi!"}), 400
+
+    file = request.files["file"]
+    if not allowed_file(file.filename):
+        return jsonify({"success": False, "message": "Fayl formati noto'g'ri!"}), 400
+
+    order_id = str(uuid.uuid4())[:6].upper()  # Masalan: "A4F29B"
+    clean_name = secure_filename(file.filename)
+    saved_path = UPLOAD_FOLDER / f"pending_{order_id}_{clean_name}"
+    file.save(str(saved_path))
+
+    amount = int(request.form.get("amount", 500))
+    copies = int(request.form.get("copies", 1))
+    color_mode = request.form.get("color_mode", "gray")
+    orientation = request.form.get("orientation", "portrait")
+    duplex = request.form.get("duplex", "one-sided")
+    page_ranges = request.form.get("page_ranges", "")
+
+    pending_orders[order_id] = {
+        "id": order_id,
+        "filename": clean_name,
+        "saved_path": str(saved_path),
+        "amount": amount,
+        "copies": copies,
+        "color_mode": color_mode,
+        "orientation": orientation,
+        "duplex": duplex,
+        "page_ranges": page_ranges,
+        "status": "PENDING",
+        "created_at": time.time()
+    }
+
+    logger.info(f"Yangi kutilayotgan buyurtma yaratildi: Order #{order_id} | {amount} so'm")
+
+    return jsonify({
+        "success": True,
+        "order_id": order_id,
+        "amount": amount,
+        "status": "PENDING"
+    })
+
+
+@app.route("/api/order/status/<order_id>", methods=["GET"])
+def check_order_payment_status(order_id):
+    """Veb-sayt ushbu endpoint orqali to'lov o'tgan-o'tmaganini har 2 soniyada tekshiradi."""
+    order = pending_orders.get(order_id)
+    if not order:
+        return jsonify({"success": False, "status": "NOT_FOUND"}), 404
+
+    return jsonify({
+        "success": True,
+        "order_id": order_id,
+        "status": order["status"]
+    })
+
+
+def _trigger_auto_print(order: dict, payment_method: str = "CLICK_WEBHOOK"):
+    """To'lov tasdiqlanishi bilan printerda avtomatik chop etish."""
+    try:
+        saved_path = Path(order["saved_path"])
+        color_mode = order.get("color_mode", "gray")
+        copies = order.get("copies", 1)
+        orientation = order.get("orientation", "portrait")
+        duplex = order.get("duplex", "one-sided")
+        page_ranges = order.get("page_ranges", "")
+
+        routing = get_printer_for_job(color_mode=color_mode, job_type="document")
+        if not routing.get("found"):
+            logger.error(f"Auto-print xatosi: {routing.get('reason')}")
+            return False
+
+        selected_printer = routing["cups_name"]
+        selected_media   = routing["media"]
+
+        if routing["type"] == "thermal":
+            printer_service.print_to_thermal(saved_path, copies=copies)
+        else:
+            ready_file = prepare_printable_file(saved_path)
+            cmd = ["lp", "-d", selected_printer, "-n", str(copies), "-o", f"media={selected_media}"]
+            if orientation == "landscape":
+                cmd.extend(["-o", "orientation-requested=4"])
+            else:
+                cmd.extend(["-o", "orientation-requested=3"])
+            if color_mode == "color":
+                cmd.extend(["-o", "ColorModel=Color"])
+            else:
+                cmd.extend(["-o", "ColorModel=Gray"])
+            if duplex == "two-sided":
+                cmd.extend(["-o", "sides=two-sided-long-edge"])
+            if page_ranges and page_ranges.lower() not in ["all", "barchasi"]:
+                cmd.extend(["-o", f"page-ranges={page_ranges}"])
+            cmd.append(str(ready_file))
+            subprocess.run(cmd, check=True)
+
+        order["status"] = "PAID"
+        recent_orders.append({
+            "id": order["id"],
+            "filename": order["filename"],
+            "amount": order["amount"],
+            "payment_method": payment_method,
+            "payment_status": "PAID",
+            "copies": copies,
+            "printer": selected_printer,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        })
+        send_telegram_alert(f"✅ <b>To'lov Qabul Qilindi!</b>\nOrder: #{order['id']}\nSumma: {order['amount']} so'm\nPrinter: {selected_printer} (Chop etildi)")
+        return True
+    except Exception as e:
+        logger.error(f"Avtomatik chop etishda xatolik: {e}")
+        return False
+
+
+# Click Rasmiy Webhook integratsiyasi
 @app.route("/api/payments/click/prepare", methods=["POST"])
 def click_prepare():
     click_trans_id = request.form.get("click_trans_id")
     service_id = request.form.get("service_id")
-    merchant_trans_id = request.form.get("merchant_trans_id")
-    amount = request.form.get("amount")
-    action = request.form.get("action")
-    error = request.form.get("error", 0)
+    merchant_trans_id = request.form.get("merchant_trans_id")  # Bu bizning order_id
+    amount = float(request.form.get("amount", 0))
 
-    logger.info(f"Click Prepare so'rovi: trans={click_trans_id}, sum={amount}")
+    order = pending_orders.get(merchant_trans_id)
+    if not order:
+        logger.warning(f"Click Prepare: Order #{merchant_trans_id} topilmadi!")
+        return jsonify({"error": -5, "error_note": "Order not found"}), 404
+
+    logger.info(f"Click Prepare muvaffaqiyatli: Order #{merchant_trans_id}, Summa={amount}")
     return jsonify({
         "click_trans_id": click_trans_id,
         "merchant_trans_id": merchant_trans_id,
@@ -558,11 +685,17 @@ def click_prepare():
 @app.route("/api/payments/click/complete", methods=["POST"])
 def click_complete():
     click_trans_id       = request.form.get("click_trans_id")
-    merchant_prepare_id  = request.form.get("merchant_prepare_id")
-    merchant_trans_id    = request.form.get("merchant_trans_id")
+    merchant_trans_id    = request.form.get("merchant_trans_id")  # Bu bizning order_id
     error                = request.form.get("error", 0)
 
-    logger.info(f"Click Complete so'rovi: trans={click_trans_id}")
+    if str(error) != "0":
+        return jsonify({"error": -1, "error_note": "Failed transaction"}), 400
+
+    order = pending_orders.get(merchant_trans_id)
+    if order:
+        logger.info(f"Click Complete: To'lov tasdiqlandi! Order #{merchant_trans_id}. Chop etish boshlanmoqda...")
+        _trigger_auto_print(order, payment_method="CLICK_WEBHOOK")
+
     return jsonify({
         "click_trans_id":       click_trans_id,
         "merchant_trans_id":    merchant_trans_id,
@@ -570,6 +703,30 @@ def click_complete():
         "error":       0,
         "error_note":  "Success"
     })
+
+
+# Payme Rasmiy Webhook integratsiyasi (JSON-RPC)
+@app.route("/api/payments/payme", methods=["POST"])
+def payme_webhook():
+    req = request.get_json(silent=True) or {}
+    method = req.get("method")
+    params = req.get("params", {})
+
+    if method == "CheckPerformTransaction":
+        order_id = params.get("account", {}).get("order_id")
+        order = pending_orders.get(order_id)
+        if not order:
+            return jsonify({"error": {"code": -31050, "message": {"uz": "Buyurtma topilmadi"}}})
+        return jsonify({"result": {"allow": True}})
+
+    elif method == "PerformTransaction":
+        order_id = params.get("account", {}).get("order_id")
+        order = pending_orders.get(order_id)
+        if order:
+            _trigger_auto_print(order, payment_method="PAYME_WEBHOOK")
+        return jsonify({"result": {"transaction": str(params.get("id")), "perform_time": int(time.time() * 1000), "state": 2}})
+
+    return jsonify({"result": {"status": "ok"}})
 
 
 # ═══════════════════════════════════════════════════════════

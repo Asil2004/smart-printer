@@ -14,6 +14,8 @@
   <!-- PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+  <!-- QRCode.js (Dinamik To'lov QR-kodlari uchun) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <!-- Konfiguratsiya -->
   <script src="config.js"></script>
 
@@ -589,8 +591,8 @@
         </div>
 
         <div class="flex p-1 bg-slate-100 rounded-xl gap-1">
-          <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-bold rounded-lg transition-all bg-white text-blue-700 shadow-sm" data-tab="card">
-            <i class="fa-solid fa-credit-card mr-1"></i>Karta
+          <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-bold rounded-lg transition-all bg-white text-blue-700 shadow-sm" data-tab="qr">
+            <i class="fa-solid fa-qrcode mr-1"></i>QR To‘lov
           </button>
           <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-medium text-slate-600 rounded-lg transition-all hover:text-slate-900" data-tab="click">
             Click
@@ -598,10 +600,38 @@
           <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-medium text-slate-600 rounded-lg transition-all hover:text-slate-900" data-tab="payme">
             Payme
           </button>
+          <button type="button" class="pay-tab-btn flex-1 py-2 text-xs font-medium text-slate-600 rounded-lg transition-all hover:text-slate-900" data-tab="card">
+            Karta
+          </button>
+        </div>
+
+        <!-- TAB 0: DINAMIK QR TO'LOV (ASOSIY & AVTOMAT) -->
+        <div id="tabContentQr" class="space-y-3 pay-tab-content text-center">
+          <div class="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+            <div class="text-xs text-slate-500 font-medium flex items-center justify-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-blue-600 animate-ping"></span>
+              <span>Telefon kamerasi yoki Click / Payme bilan skaner qiling:</span>
+            </div>
+
+            <!-- QR kod konteyneri -->
+            <div class="flex justify-center my-2 p-3 bg-slate-50 rounded-2xl border border-slate-100 inline-block mx-auto shadow-inner">
+              <div id="dynamicPayQrCode" class="w-48 h-48 flex items-center justify-center"></div>
+            </div>
+
+            <!-- Avtomat holat indikatori -->
+            <div id="qrPaymentStatusIndicator" class="flex items-center justify-center gap-2 py-1.5 px-3 rounded-full bg-amber-50 text-amber-700 text-xs font-medium border border-amber-200/60 max-w-xs mx-auto">
+              <i class="fa-solid fa-spinner fa-spin text-amber-600"></i>
+              <span id="qrStatusText">To‘lov kutilmoqda...</span>
+            </div>
+
+            <div class="text-[11px] text-slate-400">
+              Buyurtma kodi: <b id="qrOrderCodeTxt" class="text-slate-700 font-mono">#----</b> • To‘langanda printer avtomatik chop etadi
+            </div>
+          </div>
         </div>
 
         <!-- TAB 1: KARTA -->
-        <div id="tabContentCard" class="space-y-3 pay-tab-content">
+        <div id="tabContentCard" class="space-y-3 pay-tab-content hidden">
           <div class="p-4 rounded-2xl bg-gradient-to-tr from-slate-900 via-blue-950 to-indigo-950 text-white shadow-xl shadow-blue-950/20 relative overflow-hidden border border-blue-900/30">
             <div class="flex justify-between items-start mb-4">
               <span class="text-[11px] font-medium tracking-wider text-blue-200" id="cardBankTxt">UZCARD / HUMO</span>
