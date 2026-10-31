@@ -992,11 +992,29 @@ async function openPaymentModal() {
   // Tezkor va 100% ishonchli rasmli QR yaratish (Kutubxona yuklanmay qolishining oldini oladi)
   const encodedPayload = encodeURIComponent(qrPayload);
   qrContainer.innerHTML = `
-    <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodedPayload}&margin=6" 
-         alt="To'lov QR kodi" 
-         class="w-44 h-44 rounded-xl shadow-sm border border-slate-200 transition-all hover:scale-105 duration-200" 
-         loading="eager" />
+    <a href="${qrPayload}" target="_blank" title="Ilovada to'lash uchun bosing" class="block cursor-pointer">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodedPayload}&margin=6" 
+           alt="To'lov QR kodi" 
+           class="w-44 h-44 rounded-xl shadow-sm border border-slate-200 transition-all hover:scale-105 duration-200 mx-auto" 
+           loading="eager" />
+    </a>
   `;
+
+  // QR-kod ostiga tezkor to'lash tugmasi va karta ma'lumotlarini ham joylaymiz
+  const quickPayBlock = document.getElementById('qrQuickLinksBlock');
+  if (quickPayBlock) {
+    quickPayBlock.innerHTML = `
+      <div class="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+        <a href="${qrPayload}" target="_blank" class="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-1.5">
+          <i class="fa-solid fa-arrow-up-right-from-square"></i>
+          <span>Click Ilovasida To‘lash (${totalPrice.toLocaleString()} so‘m)</span>
+        </a>
+        <div class="text-[11px] text-slate-500 bg-slate-50 py-1 px-2 rounded-lg border border-slate-100">
+          Karta: <b class="font-mono text-slate-800">${cleanCard.replace(/(\d{4})/g, '$1 ').trim()}</b> (${payCfg.cardHolder || 'Ravshanov Asilbek'})
+        </div>
+      </div>
+    `;
+  }
 
   // 2. Yangi Pending Order yaratish (Backend onlayn bo'lsa yangilaydi)
   const orderFormData = new FormData(printForm);
