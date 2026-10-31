@@ -17,20 +17,18 @@ const AppConfig = {
   DEFAULT_API_URL: "https://number-curves-documents-conjunction.trycloudflare.com",
 
   // To'lov tizimi sozlamalari
-  // ⚠️ cardNumber ni TO'LIQ kiriting: "8600 1234 5678 9012"
-  //    Yulduzcha (*) bo'lsa Click/Payme havolasi ishlamaydi!
   PAYMENT: {
     enabled: true,
-    cardNumber: "",          // ← TO'LIQ karta raqami: "8600 XXXX XXXX XXXX"
-    cardHolder: "",          // ← Karta egasi: "FAMILIYA ISM"
-    cardBank: "Uzcard / Humo",
-    // Click P2P (MerchantId bo'lmasa karta orqali ishlaydi)
-    clickPhone: "",          // ← "+998XXXXXXXXX"
-    clickMerchantId: "",     // ← Click merchant bo'lmasa bo'sh qoldiring
-    clickServiceId: "",      // ← Click service bo'lmasa bo'sh qoldiring
-    // Payme (MerchantId bo'lmasa karta orqali ishlaydi)
-    paymeMerchantId: "",     // ← Payme merchant bo'lmasa bo'sh qoldiring
-    paymePhone: ""           // ← "+998XXXXXXXXX"
+    cardNumber: "5614688700590424",          // Ravshanov Asilbek Humo kartasi
+    cardHolder: "Ravshanov Asilbek",
+    cardBank: "Humo",
+    // Click P2P
+    clickPhone: "+998944737627",
+    clickMerchantId: "",     // Click merchant bo'lmasa bo'sh qoladi
+    clickServiceId: "",
+    // Payme
+    paymeMerchantId: "",     // Payme merchant bo'lmasa bo'sh qoladi
+    paymePhone: "+998944737627"
   },
 
   getPaymentConfig() {
