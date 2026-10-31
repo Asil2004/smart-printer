@@ -965,6 +965,10 @@ async function openPaymentModal() {
   document.getElementById('modalAmountTxt').textContent = totalPrice.toLocaleString();
   document.getElementById('modalOrderSummary').textContent = `${detectedPages} sahifa • ${copies} nusxa`;
 
+  // QR-kod konteynerini tayyorlash
+  const qrContainer = document.getElementById('dynamicPayQrCode');
+  qrContainer.innerHTML = '';
+
   const cleanCard = (payCfg.cardNumber || '').replace(/\s+/g, '');
   if (cleanCard.length === 16) {
     modalCardNumber.textContent = cleanCard.replace(/(\d{4})/g, '$1 ').trim();
@@ -975,7 +979,32 @@ async function openPaymentModal() {
   modalCardHolder.textContent = payCfg.cardHolder || 'PRINT MARKAZ';
   cardBankTxt.textContent = payCfg.cardBank || 'UZCARD / HUMO';
 
-  // 1. Yangi Pending Order yaratish (Webhook va Dinamik QR uchun)
+  // 1. Dastlabki QR (Lokal yoki Offline holat uchun darhol chizamiz)
+  let initialPayload = "";
+  if (payCfg.clickMerchantId && payCfg.clickServiceId) {
+    initialPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}`;
+  } else if (cleanCard) {
+    initialPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
+  } else {
+    initialPayload = `https://my.click.uz`;
+  }
+
+  try {
+    if (typeof QRCode !== "undefined") {
+      new QRCode(qrContainer, {
+        text: initialPayload,
+        width: 176,
+        height: 176,
+        colorDark: "#0f172a",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }
+  } catch (e) {
+    console.warn("QR chizishda xato:", e);
+  }
+
+  // 2. Yangi Pending Order yaratish (Backend onlayn bo'lsa yangilaydi)
   const orderFormData = new FormData(printForm);
   orderFormData.append('amount', totalPrice);
   orderFormData.append('copies', copies);
@@ -991,11 +1020,8 @@ async function openPaymentModal() {
       currentPendingOrderId = orderData.order_id;
       document.getElementById('qrOrderCodeTxt').textContent = `#${currentPendingOrderId}`;
 
-      // Dinamik QR kod generatsiyasi
-      const qrContainer = document.getElementById('dynamicPayQrCode');
+      // Dinamik QR kodni unikal Order bilan qayta chizamiz
       qrContainer.innerHTML = '';
-      
-      // Click Deep Link yoki Karta to'lov havolasi
       let qrPayload = "";
       if (payCfg.clickMerchantId && payCfg.clickServiceId) {
         qrPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}&transaction_param=${currentPendingOrderId}`;
