@@ -979,30 +979,24 @@ async function openPaymentModal() {
   modalCardHolder.textContent = payCfg.cardHolder || 'PRINT MARKAZ';
   cardBankTxt.textContent = payCfg.cardBank || 'UZCARD / HUMO';
 
-  // 1. Dastlabki QR (Lokal yoki Offline holat uchun darhol chizamiz)
-  let initialPayload = "";
+  // 1. QR-kod generatsiyasi (Dinamik Click QR yoki qrcode-generator orqali)
+  let qrPayload = "";
   if (payCfg.clickMerchantId && payCfg.clickServiceId) {
-    initialPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}`;
+    qrPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}`;
   } else if (cleanCard) {
-    initialPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
+    qrPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
   } else {
-    initialPayload = `https://my.click.uz`;
+    qrPayload = `https://my.click.uz`;
   }
 
-  try {
-    if (typeof QRCode !== "undefined") {
-      new QRCode(qrContainer, {
-        text: initialPayload,
-        width: 176,
-        height: 176,
-        colorDark: "#0f172a",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M
-      });
-    }
-  } catch (e) {
-    console.warn("QR chizishda xato:", e);
-  }
+  // Tezkor va 100% ishonchli rasmli QR yaratish (Kutubxona yuklanmay qolishining oldini oladi)
+  const encodedPayload = encodeURIComponent(qrPayload);
+  qrContainer.innerHTML = `
+    <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodedPayload}&margin=6" 
+         alt="To'lov QR kodi" 
+         class="w-44 h-44 rounded-xl shadow-sm border border-slate-200 transition-all hover:scale-105 duration-200" 
+         loading="eager" />
+  `;
 
   // 2. Yangi Pending Order yaratish (Backend onlayn bo'lsa yangilaydi)
   const orderFormData = new FormData(printForm);
@@ -1021,24 +1015,22 @@ async function openPaymentModal() {
       document.getElementById('qrOrderCodeTxt').textContent = `#${currentPendingOrderId}`;
 
       // Dinamik QR kodni unikal Order bilan qayta chizamiz
-      qrContainer.innerHTML = '';
-      let qrPayload = "";
+      let dynamicPayload = "";
       if (payCfg.clickMerchantId && payCfg.clickServiceId) {
-        qrPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}&transaction_param=${currentPendingOrderId}`;
+        dynamicPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}&transaction_param=${currentPendingOrderId}`;
       } else if (cleanCard) {
-        qrPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
+        dynamicPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
       } else {
-        qrPayload = `SMART_PRINT_ORDER:${currentPendingOrderId}:AMOUNT:${totalPrice}`;
+        dynamicPayload = `SMART_PRINT_ORDER:${currentPendingOrderId}:AMOUNT:${totalPrice}`;
       }
 
-      new QRCode(qrContainer, {
-        text: qrPayload,
-        width: 176,
-        height: 176,
-        colorDark: "#0f172a",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M
-      });
+      const encDyn = encodeURIComponent(dynamicPayload);
+      qrContainer.innerHTML = `
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encDyn}&margin=6" 
+             alt="To'lov QR kodi" 
+             class="w-44 h-44 rounded-xl shadow-sm border border-slate-200 transition-all hover:scale-105 duration-200" 
+             loading="eager" />
+      `;
 
       // Avtomatik Webhook tekshiruvini boshlash (Polling)
       startPaymentStatusPolling(currentPendingOrderId);
