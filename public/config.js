@@ -14,7 +14,7 @@ const AppConfig = {
   },
 
   // Raspberry Pi Cloudflare / Ngrok doimiy URL
-  DEFAULT_API_URL: "https://number-curves-documents-conjunction.trycloudflare.com",
+  DEFAULT_API_URL: "https://saving-delivers-lobby-browsing.trycloudflare.com",
 
   // To'lov tizimi sozlamalari
   PAYMENT: {
