@@ -38,6 +38,7 @@ KNOWN_PRINTER_DB = [
         "usb_ids": [
             ("04a9", "176d"),  # Canon LBP2900
             ("04a9", "176b"),  # Canon LBP3010
+            ("04a9", "26da"),  # Canon LBP3010/LBP3018/LBP3050 (Haqiqiy apparat ID)
             ("04a9", "1601"),  # Canon LBP3018/3050
             ("04a9", "2771"),  # Canon LBP6020
             ("04a9", "2760"),  # Canon LBP6030
