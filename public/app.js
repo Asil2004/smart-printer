@@ -979,20 +979,26 @@ async function openPaymentModal() {
   modalCardHolder.textContent = payCfg.cardHolder || 'PRINT MARKAZ';
   cardBankTxt.textContent = payCfg.cardBank || 'UZCARD / HUMO';
 
-  // 1. QR-kod generatsiyasi (Dinamik Click QR yoki qrcode-generator orqali)
-  let qrPayload = "";
-  if (payCfg.clickMerchantId && payCfg.clickServiceId) {
-    qrPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}`;
-  } else if (cleanCard) {
-    qrPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
+  // 1. QR-kod generatsiyasi (O'zbekiston standart Click P2P formati)
+  // Click ilovasi ichki skaneri faqat to'g'ridan-to'g'ri karta yoki click-p2p protokollarini taniydi
+  let clickAppUrl = "";
+  if (cleanCard) {
+    clickAppUrl = `click://p2p?card=${cleanCard}&amount=${totalPrice}`;
   } else {
-    qrPayload = `https://my.click.uz`;
+    clickAppUrl = `https://my.click.uz`;
   }
+  // Standart veb o'tish havolasi (brauzerlar va kamera uchun)
+  const clickWebUrl = cleanCard 
+    ? `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`
+    : `https://my.click.uz`;
 
-  // Tezkor va 100% ishonchli rasmli QR yaratish (Kutubxona yuklanmay qolishining oldini oladi)
-  const encodedPayload = encodeURIComponent(qrPayload);
+  // Oddiy telefon kamerasi yoki Click skaneri taniy oladigan toza karta raqami yoki click havolasi
+  // Click skaneri "5614688700590424" karta raqamining o'zini bir zumda taniy oladi!
+  const qrRawData = cleanCard ? cleanCard : clickWebUrl;
+  const encodedPayload = encodeURIComponent(qrRawData);
+
   qrContainer.innerHTML = `
-    <a href="${qrPayload}" target="_blank" title="Ilovada to'lash uchun bosing" class="block cursor-pointer">
+    <a href="${clickWebUrl}" target="_blank" title="Click ilovasida to'lash uchun bosing" class="block cursor-pointer">
       <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodedPayload}&margin=6" 
            alt="To'lov QR kodi" 
            class="w-44 h-44 rounded-xl shadow-sm border border-slate-200 transition-all hover:scale-105 duration-200 mx-auto" 
@@ -1005,12 +1011,13 @@ async function openPaymentModal() {
   if (quickPayBlock) {
     quickPayBlock.innerHTML = `
       <div class="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
-        <a href="${qrPayload}" target="_blank" class="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-1.5">
+        <a href="${clickWebUrl}" target="_blank" class="w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-1.5">
           <i class="fa-solid fa-arrow-up-right-from-square"></i>
           <span>Click Ilovasida To‘lash (${totalPrice.toLocaleString()} so‘m)</span>
         </a>
-        <div class="text-[11px] text-slate-500 bg-slate-50 py-1 px-2 rounded-lg border border-slate-100">
-          Karta: <b class="font-mono text-slate-800">${cleanCard.replace(/(\d{4})/g, '$1 ').trim()}</b> (${payCfg.cardHolder || 'Ravshanov Asilbek'})
+        <div class="text-[11px] text-slate-500 bg-slate-50 py-1.5 px-2.5 rounded-lg border border-slate-100 flex items-center justify-between">
+          <span>Karta: <b class="font-mono text-slate-800">${cleanCard.replace(/(\d{4})/g, '$1 ').trim()}</b></span>
+          <span class="text-blue-600 font-semibold">${payCfg.cardHolder || 'Ravshanov Asilbek'}</span>
         </div>
       </div>
     `;
