@@ -1173,18 +1173,37 @@ async function executePrintJob(paymentInfo) {
     const result = await res.json();
 
     if (res.ok && result.success) {
+      // 1. Ovozli xabar aytish (O'zbek tilida brauzer orqali)
+      try {
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance("To‘lov qabul qilindi. Hujjatingiz printerdan chiqdi. Qog‘ozingizni oling!");
+          utterance.lang = "uz-UZ";
+          utterance.rate = 0.95;
+          window.speechSynthesis.speak(utterance);
+        }
+      } catch (voiceErr) {
+        console.warn("Ovozli xabar xatosi:", voiceErr);
+      }
+
+      // 2. Chiroyli katta muvaffaqiyat oynasi
       Swal.fire({
         icon: 'success',
-        title: 'Chop Etish Boshlandi!',
+        title: 'Hujjat Chiqdi! 🎉',
         html: `
-          <div class="text-sm text-slate-600 space-y-2">
-            <p>${result.message}</p>
-            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 text-left space-y-1">
-              <div><strong>Printer:</strong> ${result.printer}</div>
-              <div><strong>Nusxalar:</strong> ${result.copies} ta</div>
+          <div class="text-sm text-slate-700 space-y-3 py-1">
+            <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 font-bold flex items-center justify-center gap-2">
+              <i class="fa-solid fa-circle-check text-emerald-600 text-lg"></i>
+              <span>To‘lov tasdiqlandi va hujjat printerdan to‘liq chiqdi!</span>
             </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 text-left space-y-1.5 font-medium">
+              <div><strong>Printer:</strong> <span class="text-slate-900">${result.printer} (A4 Lazer)</span></div>
+              <div><strong>Nusxalar:</strong> <span class="text-slate-900">${result.copies} ta</span></div>
+              <div><strong>Holati:</strong> <span class="text-emerald-600 font-bold">Muvaffaqiyatli yakunlandi</span></div>
+            </div>
+            <p class="text-xs text-slate-400">Iltimos, chiqarilgan qog‘ozni printer patnisidan oling.</p>
           </div>
         `,
+        confirmButtonText: 'Tushunarli, oldim!',
         confirmButtonColor: '#16a34a'
       });
       printForm.reset();
