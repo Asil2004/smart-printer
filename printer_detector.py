@@ -21,20 +21,8 @@ logger = logging.getLogger("smart_printchi.detector")
 # ──────────────────────────────────────────────────────────
 KNOWN_PRINTER_DB = [
     {
-        "type": "thermal",
-        "label": "Termal (Chek)",
-        "usb_ids": [
-            ("0483", "070b"),  # STMicroelectronics — XP-58 IIL
-            ("0416", "5011"),  # Winbond — XP-58
-            ("04b8", "0e03"),  # Epson TM-T20
-        ],
-        "cups_name_hints": ["XP-58", "XP58", "Thermal", "Receipt", "TM-T"],
-        "media": "58x297mm",
-        "color": False,
-    },
-    {
         "type": "laser_bw",
-        "label": "Lazer Oq-Qora",
+        "label": "Lazer Oq-Qora (Canon)",
         "usb_ids": [
             ("04a9", "176d"),  # Canon LBP2900
             ("04a9", "176b"),  # Canon LBP3010
@@ -326,22 +314,7 @@ def get_printer_for_job(color_mode: str = "gray", job_type: str = "document") ->
     """
     printers = detect_connected_printers()
 
-    # 1. Chek/receipt → har doim termal
-    if job_type == "receipt":
-        p = printers.get("thermal", {})
-        if p.get("connected"):
-            if not p.get("ready"):
-                return {"found": False, "reason": f"Termal printerda xatolik: {p.get('status_reason')}"}
-            return {
-                "cups_name": p["cups_name"],
-                "type": "thermal",
-                "media": p["media"],
-                "found": True,
-                "reason": "Chek → XP-58 termal printer"
-            }
-        return {"found": False, "reason": "Termal printer ulanmagan (XP-58 kerak)"}
-
-    # 2. Rangli hujjat → rangli printer
+    # 1. Rangli hujjat → rangli printer
     if color_mode == "color":
         p = printers.get("color", {})
         if p.get("connected"):
@@ -354,36 +327,22 @@ def get_printer_for_job(color_mode: str = "gray", job_type: str = "document") ->
                 "found": True,
                 "reason": "Rangli hujjat → rangli printer"
             }
-        # Rangli printer yo'q — xato
         return {"found": False, "reason": "Rangli printer ulanmagan"}
 
-    # 3. Oq-qora hujjat → lazer printer
-    if color_mode == "gray":
-        p = printers.get("laser_bw", {})
-        if p.get("connected"):
-            if not p.get("ready"):
-                logger.warning(f"Lazer printerda xatolik ({p.get('status_reason')}), zaxiraga o'tiladi")
-            else:
-                return {
-                    "cups_name": p["cups_name"],
-                    "type": "laser_bw",
-                    "media": p["media"],
-                    "found": True,
-                    "reason": "Oq-qora hujjat → Canon lazer"
-                }
-        # Lazer yo'q yoki tayyor emas — termal printer bilan urinib ko'r
-        t = printers.get("thermal", {})
-        if t.get("connected"):
-            if not t.get("ready"):
-                return {"found": False, "reason": f"Barcha printerlarda muammo: {t.get('status_reason')}"}
-            return {
-                "cups_name": t["cups_name"],
-                "type": "thermal",
-                "media": t["media"],
-                "found": True,
-                "reason": "Lazer yo'q/ishlamaydi, oq-qora → XP-58 (zaxira)"
-            }
-        return {"found": False, "reason": "Hech qanday printer ulanmagan"}
+    # 2. Oq-qora hujjat / har qanday fayl → Canon LBP 3010 Lazer printer
+    p = printers.get("laser_bw", {})
+    if p.get("connected"):
+        if not p.get("ready"):
+            return {"found": False, "reason": f"Canon LBP printerida muammo: {p.get('status_reason')}"}
+        return {
+            "cups_name": p["cups_name"] or "Canon-LBP3010",
+            "type": "laser_bw",
+            "media": p["media"],
+            "found": True,
+            "reason": "Hujjat → Canon LBP lazer printer"
+        }
+
+    return {"found": False, "reason": "Canon LBP printeri ulanmagan yoki o'chirilgan"}
 
     return {"found": False, "reason": "Noma'lum holat"}
 

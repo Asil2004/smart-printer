@@ -258,8 +258,14 @@ def health_check():
     printers = get_all_printer_status()
     connected = [p for p in printers if p["connected"]]
 
-    # Asosiy printer — birinchi ulangan
-    main_printer = connected[0]["cups_name"] if connected else ""
+    # Asosiy printer — ulangan Canon yoki birinchi printer
+    main_printer = ""
+    for p in connected:
+        if p.get("type") == "laser_bw" or "canon" in p.get("label", "").lower():
+            main_printer = p.get("cups_name") or "Canon-LBP3010"
+            break
+    if not main_printer and connected:
+        main_printer = connected[0].get("cups_name") or connected[0].get("label")
 
     return jsonify({
         "status": "online",

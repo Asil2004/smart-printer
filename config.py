@@ -27,25 +27,13 @@ LCD_COLS = 16  # LCD1602 uchun 16, LCD2004 uchun 20
 LCD_ROWS = 2   # LCD1602 uchun 2, LCD2004 uchun 4
 
 # ──────────────────────────────────────────────────────────
-# XP-58 IIL Termal Printer Sozlamalari
+# Canon LBP 3010 Standart Lazer Printer Sozlamalari
 # ──────────────────────────────────────────────────────────
-# CUPS Printer sozlamalari
-# Raspberry Pi da CUPS orqali qo'shilgan printer nomi (setup_xp58.sh bilan o'rnatiladi)
-# .env faylida: PRINTER_NAME=XP-58
-PRINTER_NAME = os.environ.get("PRINTER_NAME", "XP-58")
+PRINTER_NAME = os.environ.get("PRINTER_NAME", "Canon-LBP3010")
 
-# Termal lenta kengligi: 58mm (XP-58 IIL uchun standart)
-DEFAULT_MEDIA = os.environ.get("DEFAULT_MEDIA", "58x297mm")
+# Standart qog'oz formati: A4
+DEFAULT_MEDIA = os.environ.get("DEFAULT_MEDIA", "A4")
 
-# Termal printer DPI (XP-58 IIL: 203 DPI)
-THERMAL_DPI = int(os.environ.get("THERMAL_DPI", 203))
-
-# 58mm kenglikda chop etiluvchi piksel eni: (58mm / 25.4) * 203 DPI ≈ 463 piksel
-# Lekin xavfsiz chegara: 384 piksel (ko'pchilik termal printer drayverlarida standart)
-THERMAL_WIDTH_PX = int(os.environ.get("THERMAL_WIDTH_PX", 384))
-
-# ESC/POS to'g'ridan-to'g'ri rejimi (CUPS ishlamasa, raw USB ga yuborish)
-# Qiymatlar: "cups" | "escpos"
 PRINT_MODE = os.environ.get("PRINT_MODE", "cups")
 
 # ESC/POS USB sozlamalari (PRINT_MODE=escpos bo'lganda ishlatiladi)
