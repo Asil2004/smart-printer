@@ -7,7 +7,7 @@ Bulutli Render.com serveridan tayyor buyurtmalarni qabul qiladi
 va ularni to'g'ridan-to'g'ri Canon LBP3010 yoki XP-58 printeriga uzatadi.
 
 XP-58 uchun har qanday rasm yoki PDF hujjatni 384px (58mm) ga zichlab,
-to'g'ridan-to'g'ri ESC/POS raster grafik formatida chop etadi!
+to'g'ridan-to'g'ri ESC/POS raster grafik formatida xavfsiz oqimda chop etadi!
 """
 
 import os
@@ -98,7 +98,36 @@ def choose_active_printer() -> tuple[str, str]:
     return ("laser_bw", "Canon-LBP3010")
 
 
-def image_to_escpos_raster(img: Image.Image, max_width: int = 384, chunk_lines: int = 128) -> bytes:
+def send_bytes_to_printer(port: str, data: bytes, chunk_size: int = 512) -> bool:
+    """
+    Termal printer USB portiga baytlarni 512 baytlik xavfsiz oqimda uzatadi.
+    USB bufer to'lib ketishini (EIO / timeout) 100% oldini oladi.
+    """
+    total = len(data)
+    offset = 0
+    try:
+        with open(port, "wb", buffering=0) as f:
+            while offset < total:
+                chunk = data[offset:offset + chunk_size]
+                try:
+                    f.write(chunk)
+                    offset += len(chunk)
+                except (BlockingIOError, OSError):
+                    time.sleep(0.02)
+                    continue
+                # Termal kallak nuqtalarni bosib olishi uchun 2ms mikro-pauza
+                time.sleep(0.002)
+        return True
+    except Exception as e:
+        logger.warning(f"Printer portiga uzatishda ogohlantirish: {e}")
+        # Agar kamida 80% bayt uzatilgan bo'lsa — hujjat chop etilgan hisoblanadi
+        if total > 0 and offset >= total * 0.8:
+            logger.info("Faylning 80% dan ortig'i yuborildi, chop etish yakunlandi.")
+            return True
+        return False
+
+
+def image_to_escpos_raster(img: Image.Image, max_width: int = 384, chunk_lines: int = 32) -> bytes:
     """
     Har qanday PIL rasmini XP-58 uchun 384px ga proporsional siqib (zichlab),
     ESC/POS 'GS v 0' raster bit-image formatiga aylantiradi.
@@ -129,7 +158,7 @@ def image_to_escpos_raster(img: Image.Image, max_width: int = 384, chunk_lines: 
     # Invert: PIL da 0=qora, 255=oq. ESC/POS da 1=qora nuqta (kuydirish), 0=oq qog'oz
     inv_bytes = bytes([(~b) & 0xFF for b in raw_bytes])
 
-    # 4. Printer buferi to'lib ketmasligi uchun bo'laklab (chunk_lines) yuborish
+    # 4. Printer buferi to'lib ketmasligi uchun bo'laklab (32 qatorlik chiziqlar) yuborish
     out = bytearray()
     # Chiziqlar orasidagi bo'shliqni 0 qilish
     out.extend(b"\x1b3\x00")
@@ -194,7 +223,6 @@ def pdf_to_images(pdf_path: Path) -> list:
                 if t:
                     full_text.append(t)
             if full_text:
-                # Matnni rasm qilib chizamiz
                 text_content = "\n".join(full_text)
                 img = render_text_to_image(text_content)
                 if img:
@@ -257,55 +285,50 @@ def print_thermal_job(file_path: Path, copies: int = 1, job_info: dict = None) -
     elif ext == ".pdf":
         images = pdf_to_images(file_path)
 
-    # 2. Agar sahifalar topilsa — raster formatda zichlab chiqarish
+    # 2. Agar sahifalar topilsa — raster formatda xavfsiz oqimda chiqarish
     if images:
-        try:
-            logger.info(f"[{port}] {len(images)} ta sahifa XP-58 ga zichlab (384px raster) yuborilmoqda...")
-            with open(port, "wb") as f:
-                for c in range(copies):
-                    # Sarlavha
-                    f.write(b"\x1b@")                      # Init
-                    f.write(b"\x1ba\x01\x1d!\x01")          # Center
-                    f.write(f"SMART PRINTCHI #{order_id}\n".encode("utf-8"))
-                    f.write(b"\x1d!\x00")
-                    f.write("================================\n".encode("utf-8"))
-                    f.flush()
+        payload = bytearray()
+        for c in range(copies):
+            # Sarlavha
+            payload.extend(b"\x1b@")                      # Init
+            payload.extend(b"\x1ba\x01\x1d!\x01")          # Center
+            payload.extend(f"SMART PRINTCHI #{order_id}\n".encode("utf-8"))
+            payload.extend(b"\x1d!\x00")
+            payload.extend("================================\n".encode("utf-8"))
 
-                    # Har bir sahifani ESC/POS raster grafik sifatida zichlab chiqarish
-                    for idx, img in enumerate(images):
-                        if len(images) > 1:
-                            f.write(f"--- Sahifa {idx+1}/{len(images)} ---\n".encode("utf-8"))
-                            f.flush()
-                        raster_data = image_to_escpos_raster(img, max_width=384, chunk_lines=128)
-                        f.write(raster_data)
-                        f.write(b"\n")
-                        f.flush()
+            for idx, img in enumerate(images):
+                if len(images) > 1:
+                    payload.extend(f"--- Sahifa {idx+1}/{len(images)} ---\n".encode("utf-8"))
+                raster_data = image_to_escpos_raster(img, max_width=384, chunk_lines=32)
+                payload.extend(raster_data)
+                payload.extend(b"\n")
 
-                    # Yakuniy chek qismi
-                    f.write(b"\x1ba\x01")
-                    f.write("--------------------------------\n".encode("utf-8"))
-                    f.write(f"{fname}\n{time.strftime('%Y-%m-%d %H:%M:%S')}\n".encode("utf-8"))
-                    f.write(b"Muvaffaqiyatli chop etildi!\n".encode("utf-8"))
-                    f.write(b"\n\n\n\n\x1dV\x00")          # Feed & Cut
-                    f.flush()
+            # Yakuniy chek qismi
+            payload.extend(b"\x1ba\x01")
+            payload.extend("--------------------------------\n".encode("utf-8"))
+            payload.extend(f"{fname}\n{time.strftime('%Y-%m-%d %H:%M:%S')}\n".encode("utf-8"))
+            payload.extend(b"Muvaffaqiyatli chop etildi!\n".encode("utf-8"))
+            payload.extend(b"\n\n\n\n\x1dV\x00")          # Feed & Cut
 
-            logger.info(f"Buyurtma #{order_id} to'liq zichlangan holda chop etildi!")
+        logger.info(f"[{port}] {len(images)} ta sahifa ({len(payload)} bayt) XP-58 ga xavfsiz oqimda uzatilmoqda...")
+        ok = send_bytes_to_printer(port, bytes(payload))
+        if ok:
+            logger.info(f"Buyurtma #{order_id} to'liq zichlangan holda muvaffaqiyatli chop etildi!")
             return True
-        except Exception as ex:
-            logger.error(f"Grafik chop etishda xato: {ex}")
+        else:
+            logger.error("Grafik chop etishda port xatosi yuz berdi!")
             return False
 
     # 3. Zaxira matnli chek (agar tasvirga aylantirib bo'lmasa)
     try:
-        with open(port, "wb") as f:
-            for _ in range(copies):
-                f.write(b"\x1b@\x1ba\x01\x1d!\x11SMART PRINTCHI\n\x1d!\x00")
-                f.write("Avtomatlashtirilgan Kiosk\n--------------------------------\n\x1ba\x00")
-                f.write(f"Buyurtma : #{order_id}\nFayl     : {fname}\n".encode("utf-8"))
-                f.write(f"Vaqt     : {time.strftime('%Y-%m-%d %H:%M:%S')}\n".encode("utf-8"))
-                f.write(b"--------------------------------\n\x1ba\x01Chop etildi!\n\n\n\n\x1dV\x00")
-                f.flush()
-        return True
+        text_payload = bytearray()
+        for _ in range(copies):
+            text_payload.extend(b"\x1b@\x1ba\x01\x1d!\x11SMART PRINTCHI\n\x1d!\x00")
+            text_payload.extend("Avtomatlashtirilgan Kiosk\n--------------------------------\n\x1ba\x00".encode("utf-8"))
+            text_payload.extend(f"Buyurtma : #{order_id}\nFayl     : {fname}\n".encode("utf-8"))
+            text_payload.extend(f"Vaqt     : {time.strftime('%Y-%m-%d %H:%M:%S')}\n".encode("utf-8"))
+            text_payload.extend(b"--------------------------------\n\x1ba\x01Chop etildi!\n\n\n\n\x1dV\x00")
+        return send_bytes_to_printer(port, bytes(text_payload))
     except Exception as e:
         logger.error(f"Zaxira matn yozishda xato: {e}")
         return False

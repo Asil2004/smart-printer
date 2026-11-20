@@ -311,6 +311,14 @@
     if (!EXTS.includes(ext)) { toast('Bu format qabul qilinmaydi. PDF, DOCX, JPG yoki PNG yuboring.', 'err'); return; }
     if (file.size > MAX_BYTES) { toast('Fayl 64 MB dan katta.', 'err'); return; }
     S.view = 'print';
+
+    // Rasm har doim 1 bet — serverga so'rov kutmasdan 0 soniyada narxni hisoblaymiz
+    if (['png', 'jpg', 'jpeg'].includes(ext)) {
+      update({ file, fileExt: ext, pages: 1, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
+      speak('1 bet topildi.');
+      return;
+    }
+
     update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
     try {
       const fd = new FormData();
