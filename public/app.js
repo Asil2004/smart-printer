@@ -567,8 +567,9 @@
       }
       case 'FAILED': {
         const id = S.order.id;
+        const errReason = data.error ? ` (${data.error})` : '';
         closePay();
-        showResult(false, 'Printer xatosi', `To‘lovingiz qabul qilingan, lekin printer chop eta olmadi. Buyurtma kodi: #${id}. Admin xabardor qilindi.`);
+        showResult(false, 'Printer xatosi', `To‘lovingiz qabul qilingan, lekin printer chop eta olmadi: ${errReason || 'qog‘oz yoki ulanishni tekshiring'}. Buyurtma: #${id}`);
         break;
       }
       case 'REJECTED':
