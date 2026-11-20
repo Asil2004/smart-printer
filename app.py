@@ -807,9 +807,9 @@ def claim_order_payment(order_id):
         payments.set_status(order, "CLAIMED", claimed_at=time.time(),
                             claimed_method=(request.get_json(silent=True) or {}).get("method", ""))
         payments.notify_claim(order)
-        if payments.DEMO_AUTO_CONFIRM:
-            # Faqat lokal demo uchun (start_demo.bat): 3 soniyadan keyin o'zi tasdiqlanadi
-            threading.Timer(3.0, confirm_order, args=(order["id"], "DEMO")).start()
+        if payments.DEMO_AUTO_CONFIRM or not payments.telegram_enabled():
+            # Agar Telegram sozlanmagan bo'lsa yoki test/demo rejimida bo'lsa: 1 soniyadan keyin avtomatik tasdiqlanadi va darhol chop etiladi!
+            threading.Timer(1.0, confirm_order, args=(order["id"], "AUTO_CONFIRM")).start()
     return jsonify({"success": True, "status": order["status"]})
 
 

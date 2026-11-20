@@ -489,9 +489,10 @@
       S.order = { id: data.order_id, amount: data.amount, pages: data.pages, src };
       $('orderCode').textContent = '#' + data.order_id;
       $('payAmount').textContent = money(data.amount);
+      const pageCount = (data && data.pages) || S.pages || 1;
       $('paySummary').textContent = src.kind === 'template'
         ? `Shablon: ${src.template.name}`
-        : `${data.pages} bet × ${S.copies} nusxa · ${S.color === 'color' ? 'rangli' : 'oq-qora'}`;
+        : `${pageCount} bet × ${S.copies} nusxa · ${S.color === 'color' ? 'rangli' : 'oq-qora'}`;
       $('payClaim').disabled = false;
       setPayStatus('', 'To‘lov kutilmoqda');
       renderPayPanel();

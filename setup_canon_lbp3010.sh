@@ -98,16 +98,24 @@ usermod -aG lp "$CURRENT_USER" 2>/dev/null || true
 
 URI="${PRINTER_URI:-}"
 if [ -z "$URI" ]; then
-    for i in 1 2 3 4 5; do
+    for i in 1 2 3; do
         URI="$(lpinfo -v 2>/dev/null | awk '/usb:\/\/Canon/ {print $2; exit}')"
         [ -n "$URI" ] && break
-        sleep 2
+        sleep 1
     done
+fi
+if [ -z "$URI" ]; then
+    # Agar lpinfo -v topolmasa, lekin lsusb da Canon 04a9 bo'lsa
+    if lsusb 2>/dev/null | grep -iq "04a9"; then
+        warn "   lpinfo -v da URI chiqmadi, lekin lsusb da Canon (04a9) mavjud."
+        warn "   Standart CUPS Canon LBP URI ishlatilmoqda: usb://Canon/LBP3010/LBP3018/LBP3050"
+        URI="usb://Canon/LBP3010/LBP3018/LBP3050"
+    fi
 fi
 if [ -z "$URI" ]; then
     lsusb 2>/dev/null | grep -i "04a9" || true
     die "Canon LBP3010 topilmadi. Printerni USB ga ulang, YOQING va skriptni qayta ishga tushiring.
-       (Qo'lda: PRINTER_URI='usb://Canon/LBP3010/LBP3018/LBP3050?serial=...' sudo -E bash $0)"
+       (Qo'lda: PRINTER_URI='usb://Canon/LBP3010/LBP3018/LBP3050' sudo -E bash $0)"
 fi
 ok "   manzil: $URI"
 
