@@ -99,7 +99,7 @@ usermod -aG lp "$CURRENT_USER" 2>/dev/null || true
 URI="${PRINTER_URI:-}"
 if [ -z "$URI" ]; then
     for i in 1 2 3 4 5; do
-        URI="$(lpinfo -v 2>/dev/null | awk '/usb:\/\/Canon\/LBP3010/ {print $2; exit}')"
+        URI="$(lpinfo -v 2>/dev/null | awk '/usb:\/\/Canon/ {print $2; exit}')"
         [ -n "$URI" ] && break
         sleep 2
     done

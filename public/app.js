@@ -212,10 +212,19 @@
     const txt = $('printerStatusText');
     if (S.online === null) { el.className = 'status'; txt.textContent = 'Printer tekshirilmoqda…'; return; }
     if (!S.online) { el.className = 'status err'; txt.textContent = 'Server bilan aloqa yo‘q'; return; }
-    const main = S.printers.find((p) => p.type === 'laser_bw') || S.printers.find((p) => p.connected) || null;
-    if (S.printerReady) { el.className = 'status ok'; txt.textContent = 'Printer tayyor · navbat yo‘q'; }
-    else if (main && main.connected) { el.className = 'status warn'; txt.textContent = main.status_reason || 'Printer band'; }
-    else { el.className = 'status err'; txt.textContent = 'Printer ulanmagan'; }
+    const main = S.printers.find((p) => p.type === 'laser_bw' && p.connected) || S.printers.find((p) => p.connected) || null;
+    if (S.printerReady && main && main.connected) {
+      el.className = 'status ok';
+      txt.textContent = `${main.label || 'Canon LBP'} tayyor · navbat yo‘q`;
+    }
+    else if (main && main.connected) {
+      el.className = 'status warn';
+      txt.textContent = main.status_reason || 'Printer band';
+    }
+    else {
+      el.className = 'status err';
+      txt.textContent = 'Printer ulanmagan';
+    }
   }
 
   function render() {

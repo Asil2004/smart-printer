@@ -22,11 +22,11 @@ logger = logging.getLogger("smart_printchi.detector")
 KNOWN_PRINTER_DB = [
     {
         "type": "laser_bw",
-        "label": "Lazer Oq-Qora (Canon)",
+        "label": "Canon LBP3010 Lazer",
         "usb_ids": [
-            ("04a9", "176d"),  # Canon LBP2900
+            ("04a9", "26da"),  # Canon LBP3010/LBP3018/LBP3050 (Asl apparat ID)
             ("04a9", "176b"),  # Canon LBP3010
-            ("04a9", "26da"),  # Canon LBP3010/LBP3018/LBP3050 (Haqiqiy apparat ID)
+            ("04a9", "176d"),  # Canon LBP2900
             ("04a9", "1601"),  # Canon LBP3018/3050
             ("04a9", "2771"),  # Canon LBP6020
             ("04a9", "2760"),  # Canon LBP6030
@@ -37,6 +37,19 @@ KNOWN_PRINTER_DB = [
         ],
         "cups_name_hints": ["Canon", "LBP", "Samsung", "LaserJet", "HP_Laser", "ML-"],
         "media": "A4",
+        "color": False,
+    },
+    {
+        "type": "thermal",
+        "label": "Termal Chek (XP-58)",
+        "usb_ids": [
+            ("0483", "070b"),  # STMicroelectronics (XP-58)
+            ("0416", "5011"),  # Winbond POS58
+            ("1fc9", "2016"),  # NXP POS58
+            ("0471", "0055"),  # Philips POS
+        ],
+        "cups_name_hints": ["XP-58", "XP58", "POS", "Thermal", "ZJ-58"],
+        "media": "Roll58",
         "color": False,
     },
     {
@@ -86,6 +99,22 @@ def get_connected_usb_ids() -> list[tuple[str, str]]:
             except Exception:
                 continue
     return ids
+
+
+def get_live_cups_usb_printers() -> list[str]:
+    """
+    lpinfo -v orqali Raspberry Pi ga ayni paytda USB port orqali
+    jismonan ulangan apparatlarning URI manzillarini qaytaradi.
+    Masalan: ['usb://Canon/LBP3010/LBP3018/LBP3050?serial=...', 'usb://Printer%20/...']
+    """
+    output = _run(["lpinfo", "-v"])
+    live = []
+    for line in output.splitlines():
+        if "direct usb://" in line:
+            parts = line.split()
+            if len(parts) >= 2:
+                live.append(parts[1])
+    return live
 
 
 def get_cups_printers() -> list[dict]:
@@ -224,16 +253,12 @@ def _match_by_cups_name(cups_printers: list, db_entry: dict) -> str:
 def detect_connected_printers() -> dict:
     """
     Ulangan printerlarni aniqlaydi.
-
-    Natija:
-    {
-        "thermal":  {"connected": True,  "cups_name": "XP-58",  "label": "Termal (Chek)"},
-        "laser_bw": {"connected": True,  "cups_name": "Canon",  "label": "Lazer Oq-Qora"},
-        "color":    {"connected": False, "cups_name": "",        "label": "Rangli Printer"},
-    }
+    Faqat Raspberry Pi 3 ga ayni damda USB orqali jismonan ulangan
+    printerlar connected=True bo'ladi.
     """
     usb_ids = get_connected_usb_ids()
     cups_printers = get_cups_printers()
+    live_usb_uris = get_live_cups_usb_printers()
 
     result = {}
     thermal_stat = inspect_thermal_escpos_status()
@@ -242,6 +267,31 @@ def detect_connected_printers() -> dict:
     for db in KNOWN_PRINTER_DB:
         ptype = db["type"]
         usb_match = _match_by_usb(usb_ids, db)
+
+        # Maxsus Canon tekshiruvi: agar lsusb da istalgan Canon (04a9) qurilmasi bo'lsa
+        if ptype == "laser_bw" and not usb_match:
+            for vid, _ in usb_ids:
+                if vid == "04a9":
+                    usb_match = True
+                    break
+
+        # Ayni paytda USB orqali ulanganmi (lpinfo -v)?
+        live_usb = False
+        for uri in live_usb_uris:
+            u = uri.lower()
+            if any(hint.lower() in u for hint in db["cups_name_hints"]):
+                live_usb = True
+                break
+            if ptype == "laser_bw" and "canon" in u:
+                live_usb = True
+                break
+
+        # Termal printer uchun /dev/usb/lp* mavjudligi
+        thermal_dev = False
+        if ptype == "thermal":
+            import os
+            thermal_dev = os.path.exists("/dev/usb/lp0") or os.path.exists("/dev/usb/lp1")
+
         cups_name = _match_by_cups_name(cups_printers, db)
 
         # Status va xatoliklarni aniqlash
@@ -273,7 +323,12 @@ def detect_connected_printers() -> dict:
                 paper_out = True
                 status_reason = "Qog'oz tugagan (Datchik)"
 
-        is_connected = usb_match or bool(cups_name)
+        # FAQAT Pi3 ga jismonan ulangan bo'lsagina is_connected True bo'ladi!
+        if ptype == "thermal":
+            is_connected = usb_match or live_usb or thermal_dev
+        else:
+            is_connected = usb_match or live_usb
+
         ready = is_connected and not paper_out and not paper_jam
 
         result[ptype] = {
@@ -281,7 +336,7 @@ def detect_connected_printers() -> dict:
             "ready": ready,
             "paper_out": paper_out,
             "paper_jam": paper_jam,
-            "status_reason": status_reason if is_connected else "Ulanmagan",
+            "status_reason": status_reason if is_connected else "Ulanmagan (USB uzilgan)",
             "cups_name": cups_name,
             "label": db["label"],
             "media": db["media"],
@@ -289,7 +344,7 @@ def detect_connected_printers() -> dict:
         }
         status_str = f"✅ Tayyor" if ready else (f"⚠️ {status_reason}" if is_connected else "❌ yo'q")
         logger.info(
-            f"[{ptype}] USB:{usb_match} CUPS:'{cups_name}' → {status_str}"
+            f"[{ptype}] USB:{usb_match} Live:{live_usb} CUPS:'{cups_name}' → {status_str}"
         )
 
     return result
@@ -347,23 +402,26 @@ def get_printer_for_job(color_mode: str = "gray", job_type: str = "document") ->
     return {"found": False, "reason": "Noma'lum holat"}
 
 
-def get_all_printer_status() -> list[dict]:
+def get_all_printer_status(only_connected: bool = True) -> list[dict]:
     """
     UI uchun barcha printerlar holatini qaytaradi.
-    Natija: [{"type": "thermal", "label": "...", "connected": True, "ready": True, "paper_out": False, "status_reason": "Tayyor"}, ...]
+    only_connected=True bo'lsa (sukut bo'yicha), FAQAT Pi3 ga ayni damda
+    jismonan ulangan printerlar ro'yxatini qaytaradi.
     """
     printers = detect_connected_printers()
-    return [
-        {
+    res = []
+    for ptype, info in printers.items():
+        if only_connected and not info["connected"]:
+            continue
+        res.append({
             "type": ptype,
             "label": info["label"],
             "connected": info["connected"],
             "ready": info.get("ready", info["connected"]),
             "paper_out": info.get("paper_out", False),
             "paper_jam": info.get("paper_jam", False),
-            "status_reason": info.get("status_reason", "Tayyor" if info["connected"] else "Ulanmagan"),
+            "status_reason": info.get("status_reason", "Tayyor" if info["connected"] else "Ulanmagan (USB uzilgan)"),
             "cups_name": info["cups_name"],
             "media": info["media"],
-        }
-        for ptype, info in printers.items()
-    ]
+        })
+    return res
