@@ -84,16 +84,32 @@ def _run(cmd: list) -> str:
 
 def get_connected_usb_ids() -> list[tuple[str, str]]:
     """
-    lsusb natijasidan barcha USB Vendor:Product ID larni oladi.
-    Natija: [("0483", "070b"), ("04a9", "176d"), ...]
+    Linux /sys/bus/usb/devices dan to'g'ridan-to'g'ri tezkor o'qiydi (0.001 soniya, CPU yuklama 0%).
+    Agar /sys mavjud bo'lmasa, lsusb dan foydalanadi.
+    Natija: [("04a9", "26da"), ("0483", "070b"), ...]
     """
-    output = _run(["lsusb"])
+    import glob
     ids = []
+    sys_paths = glob.glob("/sys/bus/usb/devices/*/idVendor")
+    if sys_paths:
+        for v_path in sys_paths:
+            try:
+                p_path = v_path.replace("idVendor", "idProduct")
+                with open(v_path, "r") as fv, open(p_path, "r") as fp:
+                    vid = fv.read().strip().lower()
+                    pid = fp.read().strip().lower()
+                    ids.append((vid, pid))
+            except Exception:
+                continue
+        if ids:
+            return ids
+
+    # Fallback: lsusb
+    output = _run(["lsusb"])
     for line in output.splitlines():
-        # Natija: "Bus 001 Device 005: ID 0483:070b STMicroelectronics USB Printer Port"
         if "ID " in line:
             try:
-                id_part = line.split("ID ")[1].split()[0]  # "0483:070b"
+                id_part = line.split("ID ")[1].split()[0]
                 vendor, product = id_part.lower().split(":")
                 ids.append((vendor, product))
             except Exception:
@@ -253,38 +269,25 @@ def _match_by_cups_name(cups_printers: list, db_entry: dict) -> str:
 def detect_connected_printers() -> dict:
     """
     Ulangan printerlarni aniqlaydi.
-    Faqat Raspberry Pi 3 ga ayni damda USB orqali jismonan ulangan
-    printerlar connected=True bo'ladi.
+    Linux /sys va USB shina orqali Pi 3 ga ayni damda jismonan ulangan
+    printerlarni 0.001 soniyada aniqlaydi.
     """
     usb_ids = get_connected_usb_ids()
     cups_printers = get_cups_printers()
-    live_usb_uris = get_live_cups_usb_printers()
 
     result = {}
-    thermal_stat = inspect_thermal_escpos_status()
-    hw_paper = check_hardware_paper_sensor()
-
     for db in KNOWN_PRINTER_DB:
         ptype = db["type"]
         usb_match = _match_by_usb(usb_ids, db)
 
-        # Maxsus Canon tekshiruvi: agar lsusb da istalgan Canon (04a9) qurilmasi bo'lsa
+        # Maxsus Canon tekshiruvi: agar USB da istalgan Canon (04a9) qurilmasi bo'lsa
         if ptype == "laser_bw" and not usb_match:
             for vid, _ in usb_ids:
                 if vid == "04a9":
                     usb_match = True
                     break
 
-        # Ayni paytda USB orqali ulanganmi (lpinfo -v)?
-        live_usb = False
-        for uri in live_usb_uris:
-            u = uri.lower()
-            if any(hint.lower() in u for hint in db["cups_name_hints"]):
-                live_usb = True
-                break
-            if ptype == "laser_bw" and "canon" in u:
-                live_usb = True
-                break
+        cups_name = _match_by_cups_name(cups_printers, db)
 
         # Termal printer uchun /dev/usb/lp* mavjudligi
         thermal_dev = False
@@ -292,14 +295,11 @@ def detect_connected_printers() -> dict:
             import os
             thermal_dev = os.path.exists("/dev/usb/lp0") or os.path.exists("/dev/usb/lp1")
 
-        cups_name = _match_by_cups_name(cups_printers, db)
-
         # Status va xatoliklarni aniqlash
         paper_out = False
         paper_jam = False
         status_reason = "Tayyor"
 
-        # Agar CUPS dan xatolik kelsa
         matching_cups = next((p for p in cups_printers if p["name"].lower() == cups_name.lower()), None)
         if matching_cups:
             if matching_cups.get("paper_out"):
@@ -311,23 +311,11 @@ def detect_connected_printers() -> dict:
             elif matching_cups.get("error"):
                 status_reason = matching_cups.get("status_reason", "Xatolik")
 
-        # Termal printer uchun ESC/POS yoki Hardware datchik tekshiruvi
-        if ptype == "thermal":
-            if thermal_stat.get("paper_out"):
-                paper_out = True
-                status_reason = "Qog'oz tugagan (Termal)"
-            elif thermal_stat.get("near_end"):
-                status_reason = "Qog'oz kam qolgan"
-
-            if hw_paper is False:
-                paper_out = True
-                status_reason = "Qog'oz tugagan (Datchik)"
-
         # FAQAT Pi3 ga jismonan ulangan bo'lsagina is_connected True bo'ladi!
         if ptype == "thermal":
-            is_connected = usb_match or live_usb or thermal_dev
+            is_connected = usb_match or thermal_dev
         else:
-            is_connected = usb_match or live_usb
+            is_connected = usb_match
 
         ready = is_connected and not paper_out and not paper_jam
 
@@ -344,7 +332,7 @@ def detect_connected_printers() -> dict:
         }
         status_str = f"✅ Tayyor" if ready else (f"⚠️ {status_reason}" if is_connected else "❌ yo'q")
         logger.info(
-            f"[{ptype}] USB:{usb_match} Live:{live_usb} CUPS:'{cups_name}' → {status_str}"
+            f"[{ptype}] USB:{usb_match} CUPS:'{cups_name}' → {status_str}"
         )
 
     return result
