@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: smart-printchi-server
+    runtime: docker
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: IS_CLOUD_SERVER
+        value: "1"
+      - key: DEMO_AUTO_CONFIRM
+        value: "1"
+      - key: REQUIRE_PAYMENT_VERIFICATION
+        value: "0"

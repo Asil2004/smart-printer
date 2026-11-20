@@ -717,9 +717,24 @@ def _print_worker(order: dict):
                      f"💰 {order['amount']} so'm • {order.get('paid_by', '')}")
 
 
+IS_CLOUD_SERVER = os.environ.get("IS_CLOUD_SERVER", "0").strip().lower() in ("1", "true", "yes")
+
+
 def _start_print(order: dict):
-    payments.set_status(order, "PRINTING")
-    threading.Thread(target=_print_worker, args=(order,), daemon=True).start()
+    if IS_CLOUD_SERVER:
+        # Bulutda (Render.com) ishlayotgan bo'lsa: faylni yuqori tezlikda PDF ga tayyorlaymiz
+        try:
+            ready_file = prepare_printable_file(Path(order["saved_path"]))
+            order["ready_file"] = str(ready_file)
+            payments.set_status(order, "PAID", ready=True, note="Raspberry Pi printeriga uzatilmoqda…")
+            logger.info(f"Bulut: Buyurtma #{order['id']} agent uchun tayyorlandi: {ready_file}")
+        except Exception as e:
+            logger.error(f"Bulutda fayl tayyorlashda xatolik #{order['id']}: {e}")
+            _fail_order(order, str(e))
+    else:
+        # Mahalliy Pi da bevosita ishlayotgan bo'lsa
+        payments.set_status(order, "PRINTING")
+        threading.Thread(target=_print_worker, args=(order,), daemon=True).start()
 
 
 def confirm_order(order_id: str, source: str) -> str:
@@ -1259,6 +1274,55 @@ def print_template():
     }
     recent_orders.append(order)
     return jsonify({"success": True, "message": msg, "order": order})
+
+
+# ── Raspberry Pi Print Agent API (Bulut va Kiosk aloqasi) ──────
+@app.route("/api/agent/queue", methods=["GET"])
+def agent_get_queue():
+    """Raspberry Pi agenti uchun chop etilishi kerak bo'lgan buyurtmalar navbati."""
+    jobs = []
+    for o in payments.orders.values():
+        if o.get("status") == "PAID" and o.get("ready_file"):
+            jobs.append({
+                "id": o["id"],
+                "filename": o["filename"],
+                "copies": o.get("copies", 1),
+                "color_mode": o.get("color_mode", "gray"),
+                "orientation": o.get("orientation", "portrait"),
+                "duplex": o.get("duplex", "one-sided"),
+                "page_ranges": o.get("page_ranges", ""),
+            })
+    return jsonify({"success": True, "jobs": jobs})
+
+
+@app.route("/api/agent/download/<order_id>", methods=["GET"])
+def agent_download_file(order_id):
+    """Raspberry Pi agenti chop etish uchun tayyor PDF faylni yuklab oladi."""
+    order = payments.get_order(order_id)
+    if not order or not order.get("ready_file"):
+        return jsonify({"success": False, "message": "Fayl topilmadi"}), 404
+    ready_path = Path(order["ready_file"])
+    if not ready_path.exists():
+        return jsonify({"success": False, "message": "Fayl mavjud emas"}), 404
+    return send_file(str(ready_path), as_attachment=True, download_name=f"job_{order_id}.pdf")
+
+
+@app.route("/api/agent/status/<order_id>", methods=["POST"])
+def agent_update_status(order_id):
+    """Raspberry Pi agenti chop etish holatini xabar qiladi."""
+    order = payments.get_order(order_id)
+    if not order:
+        return jsonify({"success": False, "message": "Buyurtma topilmadi"}), 404
+    data = request.get_json(silent=True) or {}
+    st = data.get("status")
+    if st == "PRINTED":
+        payments.set_status(order, "PRINTED", printed_at=time.time(), stuck=False, note="")
+        payments.tg_send(f"✅ <b>#{order['id']} Raspberry Pi orqali chop etildi!</b>\n💰 {order['amount']} so'm")
+    elif st == "FAILED":
+        _fail_order(order, data.get("error", "Chop etishda xatolik"))
+    elif st == "PRINTING":
+        payments.set_status(order, "PRINTING", note="Printer qog'oz chiqarmoqda…")
+    return jsonify({"success": True, "status": order["status"]})
 
 
 if __name__ == "__main__":
