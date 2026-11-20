@@ -34,8 +34,8 @@
     color: 'gray',
     rangeMode: 'all',      // all | custom
     rangeText: '',
-    priceBw: 500,
-    priceColor: 1500,
+    priceBw: 250,
+    priceColor: 400,
     printers: [],
     printerReady: false,
     colorReady: false,

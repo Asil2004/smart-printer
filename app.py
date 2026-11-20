@@ -55,8 +55,8 @@ MAX_CONTENT_LENGTH = 64 * 1024 * 1024  # 64 MB
 ALLOWED_EXTENSIONS = {"pdf", "docx", "png", "jpg", "jpeg"}
 
 # Narxlar (so'mda) - Jonli kalkulyator uchun
-PRICE_PER_PAGE_BW = 500      # Oq-qora bir sahifa
-PRICE_PER_PAGE_COLOR = 1500  # Rangli bir sahifa
+PRICE_PER_PAGE_BW = 250      # Oq-qora bir sahifa
+PRICE_PER_PAGE_COLOR = 400   # Rangli bir sahifa
 FILE_RETENTION_SECONDS = 1800  # 30 daqiqadan so'ng fayllarni o'chirish
 
 app = Flask(__name__, template_folder="templates", static_folder="public", static_url_path="")
@@ -1160,9 +1160,9 @@ def admin_upload_template():
     category    = request.form.get("category", "other").strip()
     color       = request.form.get("color", "false").lower() == "true"
     try:
-        price   = int(request.form.get("price_per_page", 1500 if color else 500))
+        price   = int(request.form.get("price_per_page", PRICE_PER_PAGE_COLOR if color else PRICE_PER_PAGE_BW))
     except ValueError:
-        price   = 500
+        price   = PRICE_PER_PAGE_COLOR if color else PRICE_PER_PAGE_BW
 
     # Fayl nomini xavfsiz qilish
     safe_name  = secure_filename(f.filename)
@@ -1259,7 +1259,7 @@ def print_template():
         return jsonify({"success": False, "message": routing.get("reason")}), 503
 
     printer      = routing["cups_name"]
-    total_price  = template.get("price_per_page", 500) * copies * template.get("pages", 1)
+    total_price  = template.get("price_per_page", PRICE_PER_PAGE_BW) * copies * template.get("pages", 1)
 
     # To'lov ma'lumotlari
     payment_method = data.get("payment_method", "card")
