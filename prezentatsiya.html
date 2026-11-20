@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Printchi — Taqdimot (Presentation)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: rgba(22, 30, 49, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.35);
+      --accent: #06b6d4;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      background-image: 
+        radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(6, 182, 212, 0.12) 0%, transparent 40%);
+    }
+
+    .presentation-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 40px;
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(11, 15, 25, 0.8);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: -0.5px;
+    }
+
+    .logo-badge {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: white;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .slide-counter {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 0.95rem;
+      background: rgba(6, 182, 212, 0.1);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(6, 182, 212, 0.2);
+    }
+
+    .btn {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), #2563eb);
+      color: white;
+      border: none;
+      box-shadow: 0 4px 14px var(--primary-glow);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    }
+
+    /* Slide Arena */
+    .viewport {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 60px;
+      overflow: hidden;
+    }
+
+    .slide {
+      position: absolute;
+      width: min(1200px, 92vw);
+      height: min(680px, 80vh);
+      opacity: 0;
+      visibility: hidden;
+      transform: scale(0.96) translateY(20px);
+      transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                  visibility 0.4s;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: scale(1) translateY(0);
+    }
+
+    /* Slide Content Typography */
+    .category-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .slide-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1.2;
+      margin-bottom: 24px;
+      background: linear-gradient(to right, #ffffff, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(16px);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .card:hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+    }
+
+    .card:hover::before {
+      opacity: 1;
+    }
+
+    .card.highlight-success::before {
+      background: var(--success);
+      opacity: 1;
+    }
+
+    .card.highlight-danger::before {
+      background: var(--danger);
+      opacity: 1;
+    }
+
+    .card.highlight-warning::before {
+      background: var(--warning);
+      opacity: 1;
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-text {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .step-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .stat-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 2.6rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+      margin: 12px 0 8px 0;
+    }
+
+    .stat-number.green {
+      color: var(--success);
+    }
+
+    /* Comparison Table */
+    .comp-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      background: var(--card-bg);
+    }
+
+    .comp-table th, .comp-table td {
+      padding: 14px 20px;
+      text-align: left;
+      font-size: 0.95rem;
+    }
+
+    .comp-table th {
+      background: rgba(30, 41, 59, 0.9);
+      font-weight: 700;
+      color: var(--text);
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .comp-table tr:not(:last-child) td {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .comp-table td:nth-child(2) {
+      color: var(--text-muted);
+    }
+
+    .comp-table td:nth-child(3) {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    /* Progress bar */
+    .progress-bar-container {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 8.33%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      transition: width 0.3s ease;
+    }
+
+    /* Keyboard hint */
+    .keyboard-hint {
+      position: absolute;
+      bottom: 16px;
+      right: 40px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .kbd {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body>
+
+<div class="presentation-container">
+  <!-- Header Bar -->
+  <header>
+    <div class="logo">
+      <span>🖨️ SMART PRINTCHI</span>
+      <span class="logo-badge">STARTUP PITCH</span>
+    </div>
+    <div class="nav-controls">
+      <span class="slide-counter" id="slideNum">01 / 12</span>
+      <button class="btn" onclick="prevSlide()">← Oldingi</button>
+      <button class="btn btn-primary" onclick="nextSlide()">Keyingi →</button>
+      <button class="btn" onclick="toggleFullScreen()">⛶ To'liq ekran</button>
+    </div>
+  </header>
+
+  <!-- Slide Arena -->
+  <main class="viewport">
+
+    <!-- SLIDE 1: Title -->
+    <section class="slide active">
+      <div class="category-tag">✨ INNOVATSION IOT STARTAP</div>
+      <h1 class="slide-title" style="font-size: 3.5rem; margin-bottom: 16px;">SMART PRINTCHI</h1>
+      <p style="font-size: 1.35rem; color: var(--text-muted); margin-bottom: 36px; max-width: 850px;">
+        24/7 To'liq Avtomatlashtirilgan, Xodimsiz Aqlli Chop Etish (Self-Service Printing) Kioski
+      </p>
+
+      <div class="card" style="border-left: 4px solid var(--primary); max-width: 850px; margin-bottom: 30px;">
+        <div style="display: flex; flex-direction: column; gap: 12px; font-size: 1.05rem;">
+          <div style="color: var(--success); font-weight: 600;">✔ Mobil ilova o'rnatish talab qilinmaydi — Brauzer orqali QR-kod bilan darhol ochiladi</div>
+          <div style="color: var(--text);">✔ Click & Humo/Uzcard bir zumda integratsiyalashgan to'lov tizimi</div>
+          <div style="color: var(--accent);">✔ O'zbek tilida nutq sintezi (Speech API) bilan ovozli hamrohlik</div>
+        </div>
+      </div>
+
+      <div style="font-size: 0.95rem; color: var(--text-muted);">
+        <b>Loyiha rahbari:</b> Ravshanov Muhammad Ali &nbsp;|&nbsp; <b>Texnologiya:</b> Raspberry Pi (Linux) + Canon LBP3010 + Web App
+      </div>
+    </section>
+
+    <!-- SLIDE 2: The Problem -->
+    <section class="slide">
+      <div class="category-tag">⚠️ BOZOR MUAMMOLARI</div>
+      <h2 class="slide-title">An'anaviy Chop Etishdagi Og'riqli Nuqtalar</h2>
+      <div class="grid-2">
+        <div class="card highlight-danger">
+          <div class="card-title" style="color: var(--danger);">1. Uzun Navbatlar va Vaqt Yo'qotish</div>
+          <p class="card-text">Universitetlar, litseylar va davlat idoralarida talaba hamda mijozlar oddiy bitta qog'ozni chop etish uchun 15-30 daqiqa navbatda turishga majbur bo'ladi.</p>
+        </div>
+        <div class="card highlight-warning">
+          <div class="card-title" style="color: var(--warning);">2. Inson Omili va Ish Vaqti Cheklovi</div>
+          <p class="card-text">Nusxa ko'chirish punktlari doimiy xodim (operator) talab qiladi. Soat 18:00 dan keyin yopiladi, tushlik va dam olish kunlari ishlamaydi.</p>
+        </div>
+        <div class="card highlight-danger">
+          <div class="card-title" style="color: var(--danger);">3. Konfidensiallik va Xavfsizlik Yo'qligi</div>
+          <p class="card-text">Shaxsiy hujjatlar, pasport nusxalari, rezyume yoki diplomlar begona shaxslarning fleshkalari yoki kompyuterlarida qolib ketadi, bu esa kiberxavfsizlikka ziddir.</p>
+        </div>
+        <div class="card highlight-warning">
+          <div class="card-title" style="color: var(--warning);">4. Kichik To'lovlardagi Noqulaylik</div>
+          <p class="card-text">1000-2000 so'm uchun mayda pul topish, qaytim izlash yoki begona kartaga pul o'tkazib chek ko'rsatish ko'p noqulaylik tug'diradi.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 3: The Solution -->
+    <section class="slide">
+      <div class="category-tag">💡 BIZNING YECHIM</div>
+      <h2 class="slide-title">Aqlli, Xodimsiz va Qulay Smart Printchi</h2>
+      
+      <div class="card highlight-success" style="margin-bottom: 24px; padding: 28px;">
+        <h3 style="color: var(--success); font-size: 1.35rem; margin-bottom: 8px;">To'liq Raqamlashgan Self-Service Chop Etish Ekotizimi</h3>
+        <p style="color: var(--text); font-size: 1.05rem; line-height: 1.6;">
+          Foydalanuvchi hech qanday ilova yuklamasdan, kiosk ekranidagi QR-kodni skanerlaydi, faylini veb-sahifaga yuklaydi, Click/Humo orqali to'laydi va soniyalar ichida sifatli A4 hujjatini qabul qilib oladi.
+        </p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title" style="color: var(--primary);">24/7 Uzluksiz Ishlash</div>
+          <p class="card-text">Xodimsiz ishlaydi. Maosh, dam olish kunlari yoki insoniy charchoq yo'q. Istalgan vaqtda benuqson xizmat ko'rsatadi.</p>
+        </div>
+        <div class="card">
+          <div class="card-title" style="color: var(--accent);">Bir Zumda Natija</div>
+          <p class="card-text">Hujjat yuklangandan boshlab printerdan chiqqunga qadar bor-yo'g'i 10-20 soniya vaqt sarflanadi.</p>
+        </div>
+        <div class="card">
+          <div class="card-title" style="color: var(--success);">100% Ma'lumot Himoyasi</div>
+          <p class="card-text">Fayllar saqlanmaydi. Hujjat chop etilishi bilan tizimdan avtomatik va qaytmas tarzda o'chiriladi.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 4: How It Works -->
+    <section class="slide">
+      <div class="category-tag">🚀 FOYDALANISH JARAYONI</div>
+      <h2 class="slide-title">4 Ta Oson Qadamda Hujjat Qo'lingizda</h2>
+      <div class="grid-4">
+        <div class="card">
+          <div class="step-number">01</div>
+          <div class="card-title">QR Skanerlash</div>
+          <p class="card-text">Kioskdagi QR-kod smartfon kamerasi orqali skanerlanadi. Hech qanday dastur o'rnatmasdan brauzerda veb-portal ochiladi.</p>
+        </div>
+        <div class="card">
+          <div class="step-number">02</div>
+          <div class="card-title">Fayl Yuklash</div>
+          <p class="card-text">PDF, DOCX, TXT yoki rasm tanlanadi. Tizim avtomatik sahifalar sonini hisoblaydi va narxni chiqaradi.</p>
+        </div>
+        <div class="card">
+          <div class="step-number">03</div>
+          <div class="card-title">Tezkor To'lov</div>
+          <p class="card-text">Click ilovasi yoki Humo/Uzcard dinamik QR-kodi orqali 1 marta bosishda to'lov amalga oshiriladi.</p>
+        </div>
+        <div class="card highlight-success">
+          <div class="step-number" style="color: var(--success);">04</div>
+          <div class="card-title" style="color: var(--success);">Chop & Ovoz</div>
+          <p class="card-text">Printer A4 qog'ozini chiqaradi va kiosk o'zbek tilida "Hujjatingiz tayyor, qog'ozingizni oling!" deb e'lon qiladi.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 5: Key Features -->
+    <section class="slide">
+      <div class="category-tag">⭐ ASOSIY IMKONIYATLAR</div>
+      <h2 class="slide-title">Smart Printchi-ning Texnologik Ustunliklari</h2>
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title">📲 Web-Native (App-Free)</div>
+          <p class="card-text">Mijozdan App Store yoki Play Marketdan ilova yuklash talab qilinmaydi. Brauzerda bir zumda ishlaydi.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">🔢 Dinamik Sahifa Hisoblagich</div>
+          <p class="card-text">Yuklangan PDF yoki Word hujjatlaridagi sahifalar sonini avtomatik aniqlab, to'g'ri narx shakllantiriladi.</p>
+        </div>
+        <div class="card">
+          <div class="card-title" style="color: var(--success);">🎙️ O'zbekcha Ovozli Yordamchi</div>
+          <p class="card-text">Web Speech API orqali to'lov muvaffaqiyati va chop etish yakunlangani o'zbek tilida ovozli tushuntiriladi.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">📑 Universal Formatlar</div>
+          <p class="card-text">PDF, Microsoft Word (.docx), matnli (.txt) fayllar hamda rasmlar (JPG, PNG) bilan to'liq mos keladi.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">🔒 Avtomatik Tozalash</div>
+          <p class="card-text">Hujjat chop etilishi bilanoq serverdan butunlay o'chiriladi. Hech qanday xotirada qolmaydi.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">📡 Masofaviy Monitoring</div>
+          <p class="card-text">Qog'oz tugashi, toner holati va kunlik tushumlar onlayn tarzda admin tomonidan kuzatib boriladi.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 6: Tech Architecture -->
+    <section class="slide">
+      <div class="category-tag">🛠️ TEXNOLOGIK ARXITEKTURA</div>
+      <h2 class="slide-title">IoT Apparat va Dasturiy Ta'minot Birlashuvi</h2>
+      <div class="grid-3">
+        <div class="card" style="border-top: 3px solid var(--primary);">
+          <div class="card-title" style="color: var(--primary);">Apparat Ta'minoti (Hardware)</div>
+          <ul style="padding-left: 20px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.8;">
+            <li>Raspberry Pi IoT mini-kompyuteri</li>
+            <li>Canon LBP 3010 lazerli A4 printeri</li>
+            <li>USB 2.0 direct bidirectional interface</li>
+            <li>Ixcham metall/akril kiosk korpusi</li>
+          </ul>
+        </div>
+        <div class="card" style="border-top: 3px solid var(--accent);">
+          <div class="card-title" style="color: var(--accent);">Bosma Yadrosi (CUPS Core)</div>
+          <ul style="padding-left: 20px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.8;">
+            <li>CUPS (Common Unix Printing System)</li>
+            <li>HiSCoA v2.0 Canon CAPT drayveri</li>
+            <li>Maxsus sozlangan Canon 3010 PPD</li>
+            <li>GhostScript raster rendering filtri</li>
+          </ul>
+        </div>
+        <div class="card" style="border-top: 3px solid var(--success);">
+          <div class="card-title" style="color: var(--success);">Dasturiy Qism (Software)</div>
+          <ul style="padding-left: 20px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.8;">
+            <li>Python (Flask) asinxron backend serveri</li>
+            <li>Cloudflare Zero-Trust Secure Tunnel</li>
+            <li>Mobile-First Responsive Web UI</li>
+            <li>Web Speech API (O'zbekcha sintezator)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 7: Payments & Voice -->
+    <section class="slide">
+      <div class="category-tag">💳 INTEGRATSIYA</div>
+      <h2 class="slide-title">Click, Humo QR va Ovozli Mulqot</h2>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title" style="color: var(--primary);">Click & Humo Dinamik To'lovlar</div>
+          <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 14px; font-size: 0.95rem; color: var(--text-muted);">
+            <div><b>1. Click Deep-Link:</b> "Click orqali to'lash" tugmasi bosilganda to'g'ridan-to'g'ri foydalanuvchining Click ilovasi ochiladi.</div>
+            <div><b>2. Dinamik Humo QR-kod:</b> Ekranda karta ma'lumotlari bilan QR-kod generatsiya qilinadi, istalgan bank ilovasi bilan skanerlab to'lash mumkin.</div>
+            <div><b>3. 1-Bosishda Karta Nusxalash:</b> 16 xonali karta raqami buferga olinadi.</div>
+            <div><b>4. Avtomatik Chop Etish:</b> To'lov amalga oshirilishi bilan printer ishga tushadi.</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="color: var(--success);">O'zbek Tilidagi Ovozli Hamrohlik</div>
+          <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 14px; font-size: 0.95rem; color: var(--text-muted);">
+            <div><b>1. Insoniy muloqot hissi:</b> Kiosk ovoz chiqarib harakatlarni tasdiqlagani uchun talaba adashib qolmaydi.</div>
+            <div><b>2. SpeechSynthesis API:</b> Brauzerning o'zida apparat resurslarisiz ishlaydi.</div>
+            <div><b>3. Jonli xabar:</b> <i>"To‘lov qabul qilindi. Hujjatingiz printerdan chiqdi. Qog‘ozingizni oling!"</i></div>
+            <div><b>4. Ishonch va brend nufuzi:</b> Foydalanuvchida yuqori zamonaviy texnologiya taassuroti qoladi.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 8: Target Market -->
+    <section class="slide">
+      <div class="category-tag">🎯 MAQSADLI BOZOR</div>
+      <h2 class="slide-title">Kiosklar Qayerda Talabgir?</h2>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title" style="color: var(--primary);">🎓 Universitetlar, Kollej va Litseylar</div>
+          <p class="card-text">O'zbekistonda 200+ OTM va 1M+ talaba har kuni mustaqil ish, referat va kurs ishlarini chop etishga muhtoj. Asosiy drayver bozor.</p>
+        </div>
+        <div class="card">
+          <div class="card-title" style="color: var(--accent);">🏛️ Davlat Xizmatlari Markazlari (DXM)</div>
+          <p class="card-text">Ariza, ma'lumotnoma va pasport nusxalarini navbatsiz, mustaqil chop etish uchun aholiga juda zarur vosita.</p>
+        </div>
+        <div class="card">
+          <div class="card-title" style="color: var(--success);">🏢 Kovorking va Biznes Markazlar</div>
+          <p class="card-text">Frilanserlar va xodimlar uchun shaxsiy qimmat printer sotib olmasdan kerakli shartnomalarni 24/7 chop etish imkoniyati.</p>
+        </div>
+        <div class="card">
+          <div class="card-title" style="color: var(--warning);">🏥 Shifoxona, Sud va Notarial Idoralar</div>
+          <p class="card-text">Tibbiy tahlillar, da'vo arizalari va shartnomalar zudlik bilan chiqarilishi lozim bo'lgan gavjum nuqtalar.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 9: Unit Economics -->
+    <section class="slide">
+      <div class="category-tag">💰 BIZNES MODELI VA DAROMAD</div>
+      <h2 class="slide-title">Kuchli Unit Economics va 1 Oylik ROI</h2>
+      <div class="grid-3" style="margin-bottom: 24px;">
+        <div class="card">
+          <div style="font-size: 0.9rem; color: var(--text-muted);">1 Sahifa Tannarxi</div>
+          <div class="stat-number">~130 so'm</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">Qog'oz (80-90 so'm) + Toner va elektr (40-50 so'm)</div>
+        </div>
+        <div class="card">
+          <div style="font-size: 0.9rem; color: var(--text-muted);">Sotish Narxi</div>
+          <div class="stat-number">1 000 so'm</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">Bozordagi arzon narx (500 - 1000 so'm oralig'ida)</div>
+        </div>
+        <div class="card highlight-success">
+          <div style="font-size: 0.9rem; color: var(--text-muted);">Sof Foyda Marjasi</div>
+          <div class="stat-number green">87%</div>
+          <div style="font-size: 0.85rem; color: var(--success);">Har bir sahifadan 870 so'm sof daromad</div>
+        </div>
+      </div>
+
+      <div class="card" style="padding: 24px;">
+        <h3 style="color: var(--accent); margin-bottom: 12px; font-size: 1.15rem;">Bitta Kioskning Oylik Moliyaviy Ko'rsatkichi (OTM misolida):</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 0.95rem; color: var(--text-muted);">
+          <div>
+            • <b>Kunlik hajm:</b> 600 sahifa x 1 000 so'm = <b>600 000 so'm/kun</b><br>
+            • <b>Oylik tushum (25 kun):</b> <b>15 000 000 so'm</b><br>
+            • <b>Qog'oz va toner xarajati:</b> ~2 250 000 so'm
+          </div>
+          <div>
+            • <b>Ijara va internet xarajati:</b> ~1 500 000 so'm<br>
+            • <b style="color: var(--success); font-size: 1.1rem;">OYLIK SOF DAROMAD: ~11 250 000 so'm!</b><br>
+            • <b>Kiosk uskunasi tannarxi:</b> ~4 mln so'm → <b style="color: var(--accent);">ROI: 1 oyda to'liq oqlaydi!</b>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 10: Competition -->
+    <section class="slide">
+      <div class="category-tag">📊 SOLISHTIRMA TAHLIL</div>
+      <h2 class="slide-title">Smart Printchi vs An'anaviy Print Markazlari</h2>
+      
+      <table class="comp-table">
+        <thead>
+          <tr>
+            <th>Xususiyat</th>
+            <th>An'anaviy Nusxa Ko'chirish Markazi</th>
+            <th>Smart Printchi Kioski</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Ish Vaqti</b></td>
+            <td>09:00 - 18:00 (tushlik va dam olish kunlari bor)</td>
+            <td>24/7 Tunu-kun uzluksiz ochiq</td>
+          </tr>
+          <tr>
+            <td><b>Xodim va Maosh</b></td>
+            <td>Doimiy operator talab qilinadi (oylik xarajat)</td>
+            <td>100% Xodimsiz, to'liq avtonom</td>
+          </tr>
+          <tr>
+            <td><b>Xizmat Tezligi</b></td>
+            <td>15 - 30 daqiqa (uzun navbatlar)</td>
+            <td>15 - 30 soniya ichida qo'lingizda</td>
+          </tr>
+          <tr>
+            <td><b>Shaxsiy Ma'lumotlar</b></td>
+            <td>Kompyuter yoki fleshkada qolib ketish xavfi bor</td>
+            <td>Chop etilgach butkul va qaytmas o'chiriladi</td>
+          </tr>
+          <tr>
+            <td><b>To'lov Qulayligi</b></td>
+            <td>Faqat naqd yoki noqulay o'tkazma</td>
+            <td>Click deep-link va Humo QR 1 marta bosishda</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- SLIDE 11: Roadmap -->
+    <section class="slide">
+      <div class="category-tag">🗺️ RIVOJLANISH BOSQICHLARI</div>
+      <h2 class="slide-title">Kelajakdagi Rivojlanish Yo'l Xaritasi</h2>
+      <div class="grid-3">
+        <div class="card highlight-success">
+          <div class="card-title" style="color: var(--success);">1-Bosqich: MVP & Sinov (Bajarildi)</div>
+          <ul style="padding-left: 20px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.8;">
+            <li>✔ Veb-portal va backend tayyor</li>
+            <li>✔ Canon LBP 3010 drayveri ulandi</li>
+            <li>✔ Click & Humo QR to'lov tizimi</li>
+            <li>✔ O'zbekcha ovozli hamrohlik</li>
+          </ul>
+        </div>
+        <div class="card highlight-primary">
+          <div class="card-title" style="color: var(--primary);">2-Bosqich: Ilk Tarmoq (Q1-Q2)</div>
+          <ul style="padding-left: 20px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.8;">
+            <li>• Toshkentdagi 3-5 ta OTMga o'rnatish</li>
+            <li>• Himoyalangan metall kiosk korpusi</li>
+            <li>• Telegram orqali toner/qog'oz monitoringi</li>
+            <li>• Dastlabki mijozlar tahlili</li>
+          </ul>
+        </div>
+        <div class="card highlight-accent">
+          <div class="card-title" style="color: var(--accent);">3-Bosqich: Kengayish (Q3-Q4)</div>
+          <ul style="padding-left: 20px; color: var(--text-muted); font-size: 0.95rem; line-height: 1.8;">
+            <li>• Rangli (Color) chop etish moduli</li>
+            <li>• Pasport va hujjat skaneri</li>
+            <li>• Viloyat OTM va DXMlariga kirish</li>
+            <li>• Franshiza (Franchise) modeli</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 12: Contact & Conclusion -->
+    <section class="slide">
+      <div class="category-tag">🤝 HAMKORLIK VA ALOQA</div>
+      <h2 class="slide-title">Keling, Bosma Xizmatlarini Birgalikda Yangilaylik!</h2>
+
+      <div class="card highlight-primary" style="padding: 32px; margin-bottom: 24px;">
+        <h3 style="font-size: 1.4rem; color: var(--text); margin-bottom: 12px;">
+          Smart Printchi — Talabalar uchun qulaylik, OTMlar uchun nufuz va investorlar uchun yuqori daromadli biznes!
+        </h3>
+        <p style="color: var(--text-muted); font-size: 1.05rem; line-height: 1.7; margin-bottom: 24px;">
+          Biz universitetlar, kovorking markazlari, banklar va manfaatdor tadbirkorlar bilan hamkorlikda butun O'zbekiston bo'ylab aqlli chop etish kiosklarini o'rnatishga tayyormiz.
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 1.05rem;">
+          <div>🌐 <b>Veb-sayt:</b> <a href="https://asil2004.github.io/smart-printer/" target="_blank" style="color: var(--accent); text-decoration: none;">asil2004.github.io/smart-printer/</a></div>
+          <div>👨‍💻 <b>Loyiha rahbari:</b> Ravshanov Muhammad Ali</div>
+          <div>📞 <b>Telefon:</b> +998 94 473 76 27</div>
+          <div>💳 <b>To'lov:</b> Click & Humo (5614 6887 0059 0424)</div>
+        </div>
+      </div>
+
+      <div style="text-align: center; color: var(--success); font-weight: 700; font-size: 1.2rem;">
+        E'tiboringiz uchun rahmat! Savollaringizga javob berishdan mamnunmiz.
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Progress Bar & Hints -->
+  <div class="progress-bar-container">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <div class="keyboard-hint">
+    Boshqarish: <span class="kbd">←</span> <span class="kbd">→</span> yoki <span class="kbd">Bo'shliq (Space)</span>
+  </div>
+</div>
+
+<script>
+  let currentSlide = 0;
+  const slides = document.querySelectorAll('.slide');
+  const slideNum = document.getElementById('slideNum');
+  const progressBar = document.getElementById('progressBar');
+
+  function updateSlide(index) {
+    if (index < 0) index = 0;
+    if (index >= slides.length) index = slides.length - 1;
+    
+    slides[currentSlide].classList.remove('active');
+    currentSlide = index;
+    slides[currentSlide].classList.add('active');
+
+    // Update numbers
+    const num = (currentSlide + 1).toString().padStart(2, '0');
+    const total = slides.length.toString().padStart(2, '0');
+    slideNum.textContent = `${num} / ${total}`;
+
+    // Update progress bar
+    const percent = ((currentSlide + 1) / slides.length) * 100;
+    progressBar.style.width = percent + '%';
+  }
+
+  function nextSlide() {
+    updateSlide(currentSlide + 1);
+  }
+
+  function prevSlide() {
+    updateSlide(currentSlide - 1);
+  }
+
+  function toggleFullScreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        alert(`Xatolik: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  }
+
+  // Keyboard navigation
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+      nextSlide();
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      prevSlide();
+    } else if (e.key === 'f' || e.key === 'F') {
+      toggleFullScreen();
+    }
+  });
+
+  // Touch Swipe navigation for mobile
+  let touchStartX = 0;
+  let touchEndX = 0;
+  document.addEventListener('touchstart', e => {
+    touchStartX = e.changedTouches[0].screenX;
+  });
+  document.addEventListener('touchend', e => {
+    touchEndX = e.changedTouches[0].screenX;
+    if (touchEndX < touchStartX - 50) nextSlide();
+    if (touchEndX > touchStartX + 50) prevSlide();
+  });
+</script>
+
+</body>
+</html>

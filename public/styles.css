@@ -1,0 +1,199 @@
+/* =========================================================================
+   Smart Printchi — "Bento + Chat" dizayn tizimi
+   Asos: Design canvas, 11-variant (03 Bento + 09 Chat birlashmasi)
+   Qoidalar: DESIGN.md
+   ========================================================================= */
+
+:root {
+  --bg: #ECEEE8;          /* sahifa foni */
+  --tile: #FFFFFF;        /* kartochka */
+  --soft: #F6F7F3;        /* ikkilamchi tugma foni */
+  --line: #D9DCD3;        /* chegara */
+  --chip: #F7F8F4;
+  --chip-line: #C9CDC3;
+  --ink: #1B1F23;         /* asosiy matn va to'q panel */
+  --ink-2: #3D434A;
+  --muted: #5B6168;       /* izoh matni (4.5:1 tile ustida) */
+  --on-ink-muted: #B9BEC4;
+  --accent: #C6F36B;      /* asosiy urg'u — doim to'q matn bilan */
+  --ok: #166534;
+  --ok-dot: #16A34A;
+  --warn: #92400E;
+  --warn-bg: #FEF3C7;
+  --err: #B91C1C;
+  --err-bg: #FEE2E2;
+  --r-tile: 20px;
+  --r-btn: 12px;
+  --r-pill: 999px;
+  --font: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: #E1E4DC;
+  font-family: var(--font);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, select { font-family: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+a { color: var(--ink); }
+:focus-visible { outline: 3px solid #2563EB; outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+
+/* ── Ilova ustuni ─────────────────────────────────────────────── */
+.app {
+  max-width: 460px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 16px 16px;
+}
+@media (min-width: 640px) {
+  body { padding: 24px 0; }
+  .app { min-height: calc(100vh - 48px); border-radius: 28px; box-shadow: 0 20px 60px rgba(27, 31, 35, 0.12); }
+}
+.view { display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.spacer { flex: 1; }
+
+/* ── Sarlavha ─────────────────────────────────────────────────── */
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 0; text-align: left; color: inherit; }
+.brand-mark { width: 38px; height: 38px; border-radius: 12px; background: var(--ink); display: flex; align-items: center; justify-content: center; flex: none; }
+.brand-name { margin: 0; font-size: 16px; font-weight: 700; }
+.status { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.status .dot { width: 7px; height: 7px; border-radius: 50%; background: #9CA3AF; flex: none; }
+.status.ok { color: var(--ok); } .status.ok .dot { background: var(--ok-dot); }
+.status.warn { color: var(--warn); } .status.warn .dot { background: #D97706; }
+.status.err { color: var(--err); } .status.err .dot { background: #DC2626; }
+.link-btn { background: none; border: none; padding: 10px 4px; font-size: 14px; font-weight: 500; color: var(--ink); min-height: 44px; }
+
+/* ── Chat ─────────────────────────────────────────────────────── */
+.chat { display: flex; flex-direction: column; gap: 8px; }
+.bubble { margin: 0; max-width: 88%; font-size: 14px; line-height: 1.45; padding: 12px 14px; }
+.bubble.bot { align-self: flex-start; background: var(--tile); color: var(--ink-2); border-radius: 6px 22px 22px 22px; display: flex; flex-direction: column; gap: 6px; }
+.bubble.bot strong { color: var(--ink); font-size: 15px; font-weight: 700; line-height: 1.35; }
+.bubble.user { align-self: flex-end; background: var(--ink); color: #FFFFFF; border-radius: 20px 6px 20px 20px; }
+.file-bubble { align-self: flex-end; background: var(--ink); border-radius: 20px 6px 20px 20px; padding: 10px 14px 10px 10px; display: flex; align-items: center; gap: 10px; max-width: 88%; }
+.file-badge { width: 36px; height: 44px; border-radius: 8px; background: var(--accent); color: var(--ink); font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; text-transform: uppercase; }
+.file-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.file-name { margin: 0; font-size: 14px; font-weight: 700; color: #FFFFFF; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-sub { margin: 0; font-size: 12px; color: #C5CAD0; }
+.typing { display: inline-flex; gap: 4px; }
+.typing span { width: 6px; height: 6px; border-radius: 50%; background: #9AA0A6; animation: blink 1.2s infinite; }
+.typing span:nth-child(2) { animation-delay: .2s; } .typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 40px; padding: 0 14px; border-radius: var(--r-pill); border: 1.5px solid var(--chip-line); background: var(--chip); font-size: 13px; font-weight: 500; color: var(--ink); }
+.chip:hover { border-color: var(--ink); }
+
+/* ── Bento kartochkalar ───────────────────────────────────────── */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tile { background: var(--tile); border-radius: var(--r-tile); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.tile.span-2 { grid-column: span 2; }
+.tile-label { margin: 0; font-size: 13px; color: var(--muted); }
+.stepper { display: flex; align-items: center; justify-content: space-between; }
+.stepper output { font-size: 30px; font-weight: 700; min-width: 40px; text-align: center; }
+.round { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--soft); font-size: 20px; color: var(--ink); display: flex; align-items: center; justify-content: center; }
+.round.dark { border: none; background: var(--ink); color: #FFFFFF; }
+.round:disabled { opacity: .4; }
+.seg { display: flex; gap: 6px; }
+.seg button { flex: 1; white-space: nowrap; min-height: 44px; border-radius: var(--r-btn); border: 1px solid var(--line); background: var(--soft); font-size: 14px; font-weight: 500; color: var(--ink-2); padding: 0 6px; }
+.seg button[aria-pressed="true"] { border: 2px solid var(--ink); background: var(--ink); color: #FFFFFF; font-weight: 700; }
+.seg button:disabled { opacity: .45; }
+.field { height: 44px; border-radius: var(--r-btn); border: 1px solid var(--line); background: var(--soft); padding: 0 12px; font-size: 14px; color: var(--ink); width: 100%; }
+.field:focus { border-color: var(--ink); outline: none; background: #FFFFFF; }
+.hint { margin: 0; font-size: 12px; color: var(--muted); }
+.hint.err { color: var(--err); }
+
+/* Fayl tanlash maydoni */
+.drop { grid-column: span 2; background: var(--tile); border-radius: 24px; border: 2px dashed var(--chip-line); padding: 22px 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; color: var(--ink); min-height: 180px; justify-content: center; }
+.drop:hover, .drop.over { border-color: var(--ink); background: #FBFCF8; }
+.drop-icon { width: 56px; height: 56px; border-radius: 18px; background: var(--accent); display: flex; align-items: center; justify-content: center; }
+.drop-title { margin: 0; font-size: 18px; font-weight: 700; }
+.tpl-mini { background: var(--tile); border: none; border-radius: var(--r-tile); padding: 14px; display: flex; flex-direction: column; gap: 8px; text-align: left; color: var(--ink); min-height: 96px; }
+.tpl-mini .ico { width: 28px; height: 28px; border-radius: 9px; background: var(--ink); display: flex; align-items: center; justify-content: center; }
+.tpl-mini b { font-size: 14px; }
+.tpl-mini span { font-size: 12px; color: var(--muted); }
+
+/* ── To'lov paneli va yozish qatori ───────────────────────────── */
+.paybar { background: var(--ink); border-radius: 24px; padding: 14px 14px 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.paybar-label { margin: 0; font-size: 13px; color: var(--on-ink-muted); }
+.paybar-total { margin: 0; font-size: 26px; font-weight: 700; color: #FFFFFF; letter-spacing: -0.5px; }
+.btn-accent { min-height: 54px; padding: 0 24px; border-radius: 16px; border: none; background: var(--accent); font-size: 16px; font-weight: 700; color: var(--ink); }
+.btn-accent:disabled { background: #4B5157; color: #C5CAD0; }
+.btn-dark { min-height: 52px; padding: 0 20px; border-radius: 16px; border: none; background: var(--ink); font-size: 15px; font-weight: 700; color: #FFFFFF; width: 100%; }
+.btn-ghost { min-height: 48px; padding: 0 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--tile); font-size: 14px; font-weight: 600; color: var(--ink); width: 100%; }
+.composer { display: flex; align-items: center; gap: 8px; background: var(--tile); border-radius: var(--r-pill); padding: 5px; }
+.composer input { flex: 1; min-width: 0; height: 44px; border: none; background: transparent; padding: 0 6px; font-size: 14px; color: var(--ink); outline: none; }
+.composer .round { border: none; background: #F0F1EC; }
+.composer .round.dark { background: var(--ink); }
+
+/* ── Shablonlar ───────────────────────────────────────────────── */
+.view-head { display: flex; align-items: center; gap: 8px; }
+.view-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.6px; padding: 0 4px; }
+.tpl { background: var(--tile); border: none; border-radius: var(--r-tile); padding: 16px; display: flex; flex-direction: column; gap: 8px; text-align: left; color: var(--ink); min-height: 150px; }
+.tpl:hover { box-shadow: 0 0 0 2px var(--ink) inset; }
+.tpl .ico { width: 34px; height: 34px; border-radius: 11px; background: var(--accent); display: flex; align-items: center; justify-content: center; }
+.tpl b { font-size: 15px; line-height: 1.25; }
+.tpl .desc { font-size: 12px; color: var(--muted); line-height: 1.4; flex: 1; }
+.tpl .price { font-size: 13px; font-weight: 700; }
+.empty { grid-column: span 2; background: var(--tile); border-radius: var(--r-tile); padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
+
+/* ── Pastki oyna (to'lov, admin) ──────────────────────────────── */
+.overlay { position: fixed; inset: 0; background: rgba(27, 31, 35, 0.45); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+.sheet { width: 100%; max-width: 460px; max-height: 94vh; overflow-y: auto; background: var(--bg); border-radius: 28px 28px 0 0; padding: 10px 16px 20px; display: flex; flex-direction: column; gap: 12px; animation: up .22s ease-out; }
+@media (min-width: 640px) { .overlay { align-items: center; } .sheet { border-radius: 28px; } }
+@keyframes up { from { transform: translateY(24px); opacity: .6 } to { transform: none; opacity: 1 } }
+.grabber { width: 44px; height: 5px; border-radius: 3px; background: var(--chip-line); align-self: center; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+.sheet-title { margin: 0; font-size: 20px; font-weight: 700; }
+.order-code { margin: 0; font-size: 13px; font-weight: 700; background: var(--tile); padding: 6px 10px; border-radius: var(--r-pill); }
+.amount-tile { background: var(--ink); border-radius: 24px; padding: 18px; display: flex; flex-direction: column; gap: 4px; }
+.amount-tile p { margin: 0; }
+.amount-big { font-size: 34px; font-weight: 700; color: #FFFFFF; letter-spacing: -0.8px; }
+.methods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.methods button { min-height: 44px; border-radius: var(--r-btn); border: 1px solid var(--line); background: var(--tile); font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.methods button[aria-pressed="true"] { border: 2px solid var(--ink); color: var(--ink); font-weight: 700; }
+.pay-panel { background: var(--tile); border-radius: var(--r-tile); padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.pay-panel img { width: 196px; height: 196px; border-radius: 14px; border: 1px solid var(--line); background: #FFFFFF; }
+.pay-panel .card-no { font-size: 22px; font-weight: 700; letter-spacing: 1px; margin: 0; }
+.pay-panel .holder { margin: 0; font-size: 13px; color: var(--muted); }
+.pay-link { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 18px; border-radius: 14px; background: var(--ink); color: #FFFFFF; font-weight: 700; font-size: 14px; text-decoration: none; width: 100%; }
+.pay-status { margin: 0; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 14px; border-radius: var(--r-pill); font-size: 13px; font-weight: 600; background: var(--warn-bg); color: var(--warn); text-align: center; }
+.pay-status.info { background: #DBEAFE; color: #1E3A8A; }
+.pay-status.ok { background: #DCFCE7; color: var(--ok); }
+.pay-status.err { background: var(--err-bg); color: var(--err); }
+.row2 { display: grid; grid-template-columns: 1fr 1.6fr; gap: 8px; }
+
+/* Natija */
+.result { align-items: center; text-align: center; padding: 28px 18px 24px; gap: 14px; }
+.result-icon { width: 76px; height: 76px; border-radius: 26px; background: var(--accent); display: flex; align-items: center; justify-content: center; }
+.result-icon.err { background: var(--err-bg); }
+.result h2 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+.result p { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+
+/* Admin */
+.admin-list { display: flex; flex-direction: column; gap: 8px; }
+.admin-item { background: var(--tile); border-radius: 16px; padding: 12px 12px 12px 14px; display: flex; align-items: center; gap: 10px; }
+.admin-item div { flex: 1; min-width: 0; }
+.admin-item b { display: block; font-size: 14px; }
+.admin-item span { font-size: 12px; color: var(--muted); }
+.admin-item button { min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #FCA5A5; background: #FFF5F5; color: var(--err); font-weight: 600; font-size: 13px; }
+.form { display: flex; flex-direction: column; gap: 10px; }
+.form label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+
+/* Bildirishnoma */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 420px; width: calc(100% - 32px); background: var(--ink); color: #FFFFFF; border-radius: 16px; padding: 14px 16px; font-size: 14px; line-height: 1.4; z-index: 80; box-shadow: 0 12px 30px rgba(0,0,0,.25); }
+.toast.err { background: #7F1D1D; }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }

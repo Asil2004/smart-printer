@@ -8,11 +8,6 @@
  * Yoki saytdagi ⚙️ tugma orqali sozlash mumkin (localStorage ga saqlanadi)
  */
 const AppConfig = {
-  // Gemini AI API kaliti
-  getGeminiApiKey() {
-    return atob("QVEuQWI4Uk42TFNiWGt4X2JMV1Z6S2tRbk5HTnBGaTN1OTBYY2FpWFhScV83S2xfaHlKc2c=");
-  },
-
   // Raspberry Pi Cloudflare / Ngrok doimiy URL
   DEFAULT_API_URL: "https://saving-delivers-lobby-browsing.trycloudflare.com",
 
@@ -51,12 +46,19 @@ const AppConfig = {
 
   _activeUrl: "",
 
+  // Sayt statik xostingdami (Netlify / GitHub Pages)? Unda backend manzili tunnel orqali olinadi.
+  isStaticHost() {
+    const h = window.location.hostname;
+    return window.location.protocol === "file:" || h.includes("netlify.app") || h.includes("github.io");
+  },
+
+  shouldDiscoverUrl() {
+    return this.isStaticHost();
+  },
+
   getApiUrl() {
-    // Agar foydalanuvchi bevosita backend serverida (Cloudflare yoki lokal IP) bo'lsa
-    if (window.location.hostname.includes("trycloudflare.com") ||
-        (window.location.hostname !== "localhost" && 
-         !window.location.hostname.includes("netlify.app") && 
-         !window.location.hostname.includes("github.io"))) {
+    // Sahifani Flask serverining o'zi bergan bo'lsa (localhost:5000, Pi IP, trycloudflare) — o'sha manzil
+    if (!this.isStaticHost()) {
       return window.location.origin;
     }
     if (this._activeUrl) {

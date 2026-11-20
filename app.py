@@ -15,6 +15,7 @@ except ImportError:
 
 import threading
 import subprocess
+import tempfile
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from werkzeug.utils import secure_filename
@@ -24,19 +25,10 @@ from pypdf import PdfReader
 # Smart printer routing & service moduli
 from printer_detector import get_printer_for_job, get_all_printer_status, detect_connected_printers
 from printer_service import PrinterService
+import config  # TELEGRAM_* va boshqa sozlamalar
+import payments  # buyurtma, to'lov tasdig'i, admin token
+import cups_jobs  # CUPS ish holatini kuzatish (IPP)
 printer_service = PrinterService()
-
-# AI Writer moduli
-try:
-    from ai_writer import (
-        generate_document_text, create_docx, calculate_price,
-        extract_text_from_image, DOC_TYPES
-    )
-    AI_WRITER_AVAILABLE = True
-except Exception as _ai_err:
-    AI_WRITER_AVAILABLE = False
-    logging.getLogger("smart_printchi").warning(f"AI Writer yuklanmadi: {_ai_err}")
-
 
 # CORS moduli (Netlify saytidan so'rovlarni qabul qilish uchun)
 try:
@@ -67,7 +59,7 @@ PRICE_PER_PAGE_BW = 500      # Oq-qora bir sahifa
 PRICE_PER_PAGE_COLOR = 1500  # Rangli bir sahifa
 FILE_RETENTION_SECONDS = 1800  # 30 daqiqadan so'ng fayllarni o'chirish
 
-app = Flask(__name__, template_folder="templates", static_folder="public")
+app = Flask(__name__, template_folder="templates", static_folder="public", static_url_path="")
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "smart-web-printchi-secret-2026")
@@ -83,7 +75,7 @@ def add_cors_headers(response):
     """Barcha so'rovlar (Netlify, Ngrok, Local) uchun to'liq CORS ruxsatlarini ta'minlaydi."""
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, ngrok-skip-browser-warning, X-Requested-With"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, ngrok-skip-browser-warning, X-Requested-With, X-Admin-Token"
     return response
 
 
@@ -127,8 +119,16 @@ def convert_docx_to_pdf(docx_path: Path) -> Path:
             "LibreOffice tizimda topilmadi! Iltimos, o'rnating: sudo apt install -y libreoffice"
         )
 
+    # Avval aylantirilgan va fayldan yangi bo'lsa — qayta aylantirmaymiz
+    if expected_pdf.exists() and expected_pdf.stat().st_mtime >= docx_path.stat().st_mtime:
+        return expected_pdf
+
+    # Har konvertatsiyaga alohida LibreOffice profili: bir vaqtda ikki buyurtma kelsa
+    # umumiy profil qulflanib, ikkinchisi xato bilan tugaydi.
+    profile_dir = Path(tempfile.mkdtemp(prefix="lo_profile_"))
     cmd = [
         libreoffice_cmd,
+        f"-env:UserInstallation=file://{profile_dir}",
         "--headless",
         "--convert-to",
         "pdf",
@@ -137,7 +137,12 @@ def convert_docx_to_pdf(docx_path: Path) -> Path:
         str(docx_path),
     ]
     logger.info(f"DOCX ni PDF ga konvertatsiya qilish: {' '.join(cmd)}")
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("DOCX konvertatsiyasi 3 daqiqada tugamadi")
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
     if res.returncode != 0 or not expected_pdf.exists():
         raise RuntimeError(f"DOCX konvertatsiyasida xatolik: {res.stderr}")
 
@@ -207,8 +212,10 @@ def background_cleanup_worker():
     while True:
         try:
             now = time.time()
+            payments.expire_old_orders()
+            keep = payments.protected_paths()
             for item in UPLOAD_FOLDER.iterdir():
-                if item.is_file() and item.name != ".gitkeep":
+                if item.is_file() and item.name != ".gitkeep" and str(item) not in keep:
                     file_age = now - item.stat().st_mtime
                     if file_age > FILE_RETENTION_SECONDS:
                         item.unlink(missing_ok=True)
@@ -244,12 +251,10 @@ def send_telegram_alert(message: str):
 # ----------------- VEB VA API MARSHRUTLARI -----------------
 @app.route("/")
 def index():
-    """Lokal tarmoqda ochilganda xizmat qiladi."""
-    return render_template(
-        "index.html",
-        price_bw=PRICE_PER_PAGE_BW,
-        price_color=PRICE_PER_PAGE_COLOR
-    )
+    """Lokal tarmoqda / tunnel orqali ochilganda — Netlify bilan bir xil public/index.html."""
+    resp = app.send_static_file("index.html")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/api/health", methods=["GET"])
@@ -273,6 +278,8 @@ def health_check():
         "printers": printers,           # Barcha printerlar holati (UI uchun)
         "price_bw": PRICE_PER_PAGE_BW,
         "price_color": PRICE_PER_PAGE_COLOR,
+        "payment_verification": payments.REQUIRE_PAYMENT,
+        "confirm_via": "telegram" if payments.telegram_enabled() else "admin",
         "timestamp": time.time()
     })
 
@@ -294,29 +301,14 @@ def inspect_file():
 
     page_count = 1
     try:
-        if ext == ".pdf":
-            page_count = get_pdf_page_count(temp_path)
-        elif ext in [".png", ".jpg", ".jpeg"]:
-            page_count = 1
-        elif ext == ".docx":
-            import zipfile
-            import xml.etree.ElementTree as ET
-            try:
-                with zipfile.ZipFile(temp_path, "r") as docx_zip:
-                    if "docProps/app.xml" in docx_zip.namelist():
-                        app_xml = docx_zip.read("docProps/app.xml")
-                        root = ET.fromstring(app_xml)
-                        for elem in root.iter():
-                            if elem.tag.endswith("Pages"):
-                                page_count = int(elem.text)
-                                break
-            except Exception as e:
-                logger.warning(f"DOCX sahifalarini o'qishda xatolik: {e}")
-                page_count = 1
+        # Buyurtma narxi bilan bir xil usulda sanaymiz (DOCX → PDF aylantirib)
+        page_count = _count_file_pages(temp_path)
     except Exception as err:
         logger.error(f"Faylni tahlil qilishda xatolik: {err}")
     finally:
         temp_path.unlink(missing_ok=True)
+        if ext == "docx":
+            temp_path.with_suffix(".pdf").unlink(missing_ok=True)  # konvertatsiya nusxasi
 
     return jsonify({
         "success": True,
@@ -332,6 +324,9 @@ def print_document():
       - color_mode=gray   → Canon lazer (oq-qora)
       - color_mode=color  → Rangli printer
     """
+    blocked = _require_paid_or_admin()
+    if blocked:
+        return blocked
     if "file" not in request.files:
         return jsonify({"success": False, "message": "Hech qanday fayl tanlanmadi!"}), 400
 
@@ -527,6 +522,12 @@ def get_printers():
     UI da har bir printer uchun 🟢/🔴 ko'rsatgich uchun ishlatiladi.
     """
     printers = get_all_printer_status()
+    stuck = _stuck_order()
+    if stuck:
+        for p in printers:
+            if p.get("type") == "laser_bw" and p.get("connected"):
+                p["ready"] = False
+                p["status_reason"] = "Printer band: qog'oz yoki ulanishni tekshiring"
     return jsonify({
         "success": True,
         "printers": printers
@@ -534,205 +535,505 @@ def get_printers():
 
 @app.route("/api/orders", methods=["GET"])
 def get_recent_orders():
-    """Admin uchun oxirgi to'lovlar va chop etilgan fayllar ro'yxati."""
-    return jsonify({
-        "success": True,
-        "orders": list(reversed(recent_orders))
-    })
+    """Admin uchun oxirgi to'lovlar va chop etilgan fayllar ro'yxati (X-Admin-Token kerak)."""
+    if not payments.is_admin(request):
+        return jsonify({"success": False, "message": "Admin token kerak"}), 401
+    all_orders = sorted(payments.orders.values(), key=lambda o: o.get("created_at", 0), reverse=True)
+    public = [{k: v for k, v in o.items() if k != "saved_path"} for o in all_orders[:100]]
+    return jsonify({"success": True, "orders": public, "legacy": list(reversed(recent_orders))})
 
 
-# ----------------- TO'LOV VA BUYURTMALAR TARIXI API -----------------
-recent_orders = []
-pending_orders = {}  # { order_id: { file_path, options, amount, status: 'PENDING' | 'PAID' } }
+# ═══════════════════════════════════════════════════════════
+# BUYURTMA VA TO'LOV TASDIG'I (payments.py bilan)
+# ═══════════════════════════════════════════════════════════
+def _count_file_pages(path: Path) -> int:
+    """PDF / DOCX / rasm sahifalar sonini aniqlaydi (narx uchun)."""
+    ext = path.suffix.lower()
+    if ext == ".pdf":
+        return get_pdf_page_count(path)
+    if ext == ".docx":
+        try:
+            return get_pdf_page_count(convert_docx_to_pdf(path))
+        except Exception as e:
+            logger.warning(f"DOCX ni PDF ga aylantirib sanab bo'lmadi, app.xml ishlatiladi: {e}")
+        import zipfile
+        import xml.etree.ElementTree as ET
+        try:
+            with zipfile.ZipFile(path, "r") as z:
+                if "docProps/app.xml" in z.namelist():
+                    for elem in ET.fromstring(z.read("docProps/app.xml")).iter():
+                        if elem.tag.endswith("Pages") and elem.text:
+                            return max(1, int(elem.text))
+        except Exception as e:
+            logger.warning(f"DOCX sahifalarini o'qishda xatolik: {e}")
+    return 1
+
+
+def _int_form(src, key, default, lo=None, hi=None):
+    try:
+        v = int(src.get(key, default))
+    except (TypeError, ValueError):
+        v = default
+    if lo is not None:
+        v = max(lo, v)
+    if hi is not None:
+        v = min(hi, v)
+    return v
+
+
+def _execute_print(saved_path: Path, color_mode="gray", copies=1, orientation="portrait",
+                   duplex="one-sided", page_ranges="") -> dict:
+    """Faylni Smart Router tanlagan printerga yuboradi. Xato bo'lsa RuntimeError."""
+    routing = get_printer_for_job(color_mode=color_mode, job_type="document")
+    if not routing.get("found"):
+        raise RuntimeError(routing.get("reason", "Mos printer topilmadi"))
+    printer = routing["cups_name"]
+
+    if routing["type"] == "thermal":
+        printer_service.print_to_thermal(saved_path, copies=copies)
+        return {"printer": printer, "simulated": False}
+
+    ready_file = prepare_printable_file(saved_path)
+    cmd = ["lp", "-d", printer, "-n", str(copies), "-o", f"media={routing['media']}",
+           "-o", "orientation-requested=4" if orientation == "landscape" else "orientation-requested=3",
+           "-o", "ColorModel=Color" if color_mode == "color" else "ColorModel=Gray",
+           "-o", "sides=two-sided-long-edge" if duplex == "two-sided" else "sides=one-sided"]
+    if page_ranges and page_ranges.lower() not in ("all", "barchasi"):
+        cmd += ["-o", f"page-ranges={page_ranges}"]
+    if saved_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+        cmd += ["-o", "fit-to-page"]
+    cmd.append(str(ready_file))
+
+    if not shutil.which("lp"):
+        logger.warning(f"[SIMULYATSIYA] CUPS yo'q: {' '.join(cmd)}")
+        return {"printer": printer, "simulated": True}
+
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or "Noma'lum CUPS xatosi")
+    return {"printer": printer, "simulated": False, "cups": proc.stdout.strip(),
+            "job_id": cups_jobs.parse_lp_job_id(proc.stdout)}
+
+
+# CUPS ishini kuzatish chegaralari (Canon LBP3010 ≈ 14 bet/daqiqa)
+PRINT_ALERT_BASE_S = 60      # shundan keyin ham tugamasa — adminga ogohlantirish
+PRINT_ALERT_PER_PAGE_S = 10
+PRINT_GIVE_UP_S = 20 * 60    # 20 daqiqa: ish bekor qilinadi, buyurtma FAILED
+
+
+def _stuck_order():
+    """Uzoq vaqt tugamay turgan (qog'oz/USB muammosi) chop etish buyurtmasi."""
+    for o in payments.orders.values():
+        if o.get("status") == "PRINTING" and o.get("stuck"):
+            return o
+    return None
+
+
+def _fail_order(order: dict, reason: str):
+    payments.set_status(order, "FAILED", error=reason, stuck=False)
+    payments.tg_send(
+        f"⚠️ <b>#{order['id']} TO'LANGAN, lekin chop etilmadi!</b>\n"
+        f"{payments.order_summary(order)}\n❌ <code>{reason[:300]}</code>",
+        buttons=[[{"text": "🔁 Qayta chop etish", "callback_data": f"rep:{order['id']}"}]])
+
+
+def _wait_cups_job(order: dict, printer: str, job_id: int):
+    """CUPS ishi tugaguncha kutadi. True = haqiqatan chop etildi."""
+    pages = int(order.get("pages", 1)) * int(order.get("copies", 1))
+    alert_after = PRINT_ALERT_BASE_S + PRINT_ALERT_PER_PAGE_S * pages
+    started, alerted, unknown = time.time(), False, 0
+    while True:
+        info = cups_jobs.get_job(printer, job_id)
+        state = info.get("state")
+        if state in cups_jobs.FINAL_OK:
+            return True, ""
+        if state in cups_jobs.FINAL_BAD:
+            return False, f"CUPS ishi {state}: {info.get('message', '')}"
+        if state == "unknown":
+            unknown += 1
+            if unknown >= 15:          # CUPS IPP javob bermayapti — eski xatti-harakat
+                logger.warning(f"#{order['id']}: CUPS ish holatini o'qib bo'lmadi ({info.get('error')})")
+                return True, ""
+        else:
+            unknown = 0
+        elapsed = time.time() - started
+        if not alerted and elapsed > alert_after:
+            alerted = True
+            payments.set_status(order, "PRINTING", stuck=True,
+                                note="Printer javob bermayapti — qog'oz yoki ulanish tekshirilmoqda")
+            payments.tg_send(
+                f"🟠 <b>#{order['id']} printerda kutib qoldi</b> ({int(elapsed)} s)\n"
+                f"Canon LBP3010 ga qog'oz soling yoki USB kabelni tekshiring — "
+                f"ish o'zi davom etadi.\nCUPS: <code>{info.get('message', '')[:200]}</code>")
+        if elapsed > PRINT_GIVE_UP_S:
+            cups_jobs.cancel_job(printer, job_id)
+            return False, (f"Printer {max(1, PRINT_GIVE_UP_S // 60)} daqiqa javob bermadi "
+                           f"(qog'oz yoki USB). Ish bekor qilindi.")
+        time.sleep(2)
+
+
+def _print_worker(order: dict):
+    try:
+        res = _execute_print(Path(order["saved_path"]), order.get("color_mode", "gray"),
+                             order.get("copies", 1), order.get("orientation", "portrait"),
+                             order.get("duplex", "one-sided"), order.get("page_ranges", ""))
+    except Exception as e:
+        logger.error(f"Order #{order['id']} chop etishda xatolik: {e}")
+        _fail_order(order, str(e))
+        return
+
+    if not res["simulated"] and res.get("job_id"):
+        payments.set_status(order, "PRINTING", printer=res["printer"], cups_job=res["job_id"])
+        ok, reason = _wait_cups_job(order, res["printer"], res["job_id"])
+        if not ok:
+            logger.error(f"Order #{order['id']}: {reason}")
+            _fail_order(order, reason)
+            return
+
+    was_stuck = order.get("stuck")
+    payments.set_status(order, "PRINTED", printer=res["printer"], simulated=res["simulated"],
+                        printed_at=time.time(), stuck=False, note="")
+    logger.info(f"Order #{order['id']} chop etildi → {res['printer']}")
+    payments.tg_send(f"✅ <b>#{order['id']} chop etildi</b> → {res['printer']}"
+                     f"{' (kutishdan keyin)' if was_stuck else ''}\n"
+                     f"💰 {order['amount']} so'm • {order.get('paid_by', '')}")
+
+
+def _start_print(order: dict):
+    payments.set_status(order, "PRINTING")
+    threading.Thread(target=_print_worker, args=(order,), daemon=True).start()
+
+
+def confirm_order(order_id: str, source: str) -> str:
+    """To'lovni tasdiqlaydi va chop etishni boshlaydi. Idempotent."""
+    with payments._lock:
+        order = payments.get_order(order_id)
+        if not order:
+            return "Buyurtma topilmadi"
+        if order["status"] in ("PAID", "PRINTING", "PRINTED", "FAILED"):
+            return f"#{order['id']} allaqachon tasdiqlangan ({order['status']})"
+        if order["status"] not in ("PENDING", "CLAIMED", "EXPIRED"):
+            return f"#{order['id']} tasdiqlab bo'lmaydi ({order['status']})"
+        payments.set_status(order, "PAID", paid_by=source, paid_at=time.time())
+    recent_orders.append({"id": order["id"], "filename": order["filename"],
+                          "amount": order["amount"], "payment_method": source,
+                          "payment_status": "PAID", "copies": order["copies"],
+                          "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")})
+    del recent_orders[:-50]
+    _start_print(order)
+    return f"#{order['id']} tasdiqlandi — chop etilmoqda"
+
+
+def reject_order(order_id: str, source: str) -> str:
+    order = payments.get_order(order_id)
+    if not order:
+        return "Buyurtma topilmadi"
+    if order["status"] not in ("PENDING", "CLAIMED"):
+        return f"#{order['id']} rad etib bo'lmaydi ({order['status']})"
+    payments.set_status(order, "REJECTED", rejected_by=source)
+    return f"#{order['id']} rad etildi"
+
+
+def reprint_order(order_id: str, source: str) -> str:
+    order = payments.get_order(order_id)
+    if not order:
+        return "Buyurtma topilmadi"
+    if order["status"] not in ("FAILED", "PRINTED"):
+        return f"#{order['id']} qayta chop etib bo'lmaydi ({order['status']})"
+    if not Path(order["saved_path"]).exists():
+        return f"#{order['id']} fayli o'chib ketgan"
+    _start_print(order)
+    return f"#{order['id']} qayta chop etilmoqda"
 
 
 @app.route("/api/order/create", methods=["POST"])
 def create_pending_order():
     """
-    To'lovdan oldin buyurtma va unikal to'lov kodini yaratadi.
-    Faylni vaqtinchalik saqlaydi va Dinamik QR / Webhook uchun tayyorlaydi.
+    To'lovdan oldin buyurtma yaratadi. Narx SERVERDA hisoblanadi.
+    source:
+      - file     : multipart "file" (+ color_mode, copies, orientation, duplex, page_ranges)
+      - template : "template_id" (+ copies, color_mode)
     """
-    if "file" not in request.files:
-        return jsonify({"success": False, "message": "Fayl tanlanmadi!"}), 400
+    if _stuck_order():
+        return jsonify({"success": False, "printer_busy": True,
+                        "message": "Printer hozir band (qog'oz yoki ulanish). Iltimos, birozdan so'ng urinib ko'ring."}), 503
+    form   = request.form if request.form else (request.get_json(silent=True) or {})
+    source = form.get("source", "file")
+    copies = _int_form(form, "copies", 1, 1, 10)
+    color_mode = "color" if form.get("color_mode") == "color" else "gray"
+    order_id = uuid.uuid4().hex[:6].upper()
+    order = {"id": order_id, "kind": source, "copies": copies, "color_mode": color_mode,
+             "orientation": "landscape" if form.get("orientation") == "landscape" else "portrait",
+             "duplex": "two-sided" if form.get("duplex") == "two-sided" else "one-sided",
+             "page_ranges": (form.get("page_ranges") or "").strip()[:50],
+             "status": "PENDING", "created_at": time.time()}
 
-    file = request.files["file"]
-    if not allowed_file(file.filename):
-        return jsonify({"success": False, "message": "Fayl formati noto'g'ri!"}), 400
+    if source == "template":
+        tmpl = next((t for t in _load_templates() if t["id"] == form.get("template_id")), None)
+        if not tmpl or not tmpl.get("file_exists"):
+            return jsonify({"success": False, "message": "Shablon topilmadi"}), 404
+        pages = int(tmpl.get("pages", 1))
+        order.update(filename=tmpl["name"], saved_path=str(TEMPLATES_DIR / tmpl["file"]),
+                     pages=pages, page_ranges="",
+                     amount=int(tmpl.get("price_per_page", PRICE_PER_PAGE_BW)) * pages * copies)
 
-    order_id = str(uuid.uuid4())[:6].upper()  # Masalan: "A4F29B"
-    clean_name = secure_filename(file.filename)
-    saved_path = UPLOAD_FOLDER / f"pending_{order_id}_{clean_name}"
-    file.save(str(saved_path))
+    else:
+        file = request.files.get("file")
+        if not file or not allowed_file(file.filename):
+            return jsonify({"success": False, "message": "Fayl tanlanmadi yoki formati noto'g'ri!"}), 400
+        clean_name = secure_filename(file.filename) or f"fayl.{file.filename.rsplit('.', 1)[-1]}"
+        saved_path = UPLOAD_FOLDER / f"pending_{order_id}_{clean_name}"
+        file.save(str(saved_path))
+        total = _count_file_pages(saved_path)
+        pages = payments.count_selected_pages(order["page_ranges"], total)
+        per_page = PRICE_PER_PAGE_COLOR if color_mode == "color" else PRICE_PER_PAGE_BW
+        order.update(filename=clean_name, saved_path=str(saved_path), pages=pages,
+                     total_pages=total, amount=pages * copies * per_page)
 
-    amount = int(request.form.get("amount", 500))
-    copies = int(request.form.get("copies", 1))
-    color_mode = request.form.get("color_mode", "gray")
-    orientation = request.form.get("orientation", "portrait")
-    duplex = request.form.get("duplex", "one-sided")
-    page_ranges = request.form.get("page_ranges", "")
+    payments.add_order(order)
+    logger.info(f"Yangi buyurtma #{order_id} [{source}] | {order['amount']} so'm")
+    return jsonify({"success": True, "order_id": order_id, "amount": order["amount"],
+                    "pages": order["pages"], "status": "PENDING",
+                    "verification": "telegram" if payments.telegram_enabled() else "admin"})
 
-    pending_orders[order_id] = {
-        "id": order_id,
-        "filename": clean_name,
-        "saved_path": str(saved_path),
-        "amount": amount,
-        "copies": copies,
-        "color_mode": color_mode,
-        "orientation": orientation,
-        "duplex": duplex,
-        "page_ranges": page_ranges,
-        "status": "PENDING",
-        "created_at": time.time()
-    }
 
-    logger.info(f"Yangi kutilayotgan buyurtma yaratildi: Order #{order_id} | {amount} so'm")
-
-    return jsonify({
-        "success": True,
-        "order_id": order_id,
-        "amount": amount,
-        "status": "PENDING"
-    })
+@app.route("/api/order/<order_id>/claim", methods=["POST"])
+def claim_order_payment(order_id):
+    """Mijoz 'To'ladim' bosdi → adminga Telegramda tasdiq so'rovi ketadi. Chop etmaydi!"""
+    order = payments.get_order(order_id)
+    if not order:
+        return jsonify({"success": False, "status": "NOT_FOUND"}), 404
+    if order["status"] == "PENDING":
+        payments.set_status(order, "CLAIMED", claimed_at=time.time(),
+                            claimed_method=(request.get_json(silent=True) or {}).get("method", ""))
+        payments.notify_claim(order)
+        if payments.DEMO_AUTO_CONFIRM:
+            # Faqat lokal demo uchun (start_demo.bat): 3 soniyadan keyin o'zi tasdiqlanadi
+            threading.Timer(3.0, confirm_order, args=(order["id"], "DEMO")).start()
+    return jsonify({"success": True, "status": order["status"]})
 
 
 @app.route("/api/order/status/<order_id>", methods=["GET"])
 def check_order_payment_status(order_id):
-    """Veb-sayt ushbu endpoint orqali to'lov o'tgan-o'tmaganini har 2 soniyada tekshiradi."""
-    order = pending_orders.get(order_id)
+    """Veb-sayt har 2 soniyada holatni so'raydi."""
+    order = payments.get_order(order_id)
     if not order:
         return jsonify({"success": False, "status": "NOT_FOUND"}), 404
-
-    return jsonify({
-        "success": True,
-        "order_id": order_id,
-        "status": order["status"]
-    })
+    return jsonify({"success": True, "order_id": order["id"], "status": order["status"],
+                    "amount": order["amount"], "printer": order.get("printer", ""),
+                    "note": order.get("note", "") if order["status"] == "PRINTING" else "",
+                    "error": order.get("error", "") if order["status"] == "FAILED" else ""})
 
 
-def _trigger_auto_print(order: dict, payment_method: str = "CLICK_WEBHOOK"):
-    """To'lov tasdiqlanishi bilan printerda avtomatik chop etish."""
+@app.route("/api/admin/orders/<order_id>/<action>", methods=["POST"])
+def admin_order_action(order_id, action):
+    """Admin: confirm | reject | reprint (X-Admin-Token kerak)."""
+    if not payments.is_admin(request):
+        return jsonify({"success": False, "message": "Admin token noto'g'ri"}), 401
+    fn = {"confirm": confirm_order, "reject": reject_order, "reprint": reprint_order}.get(action)
+    if not fn:
+        return jsonify({"success": False, "message": "Noma'lum amal"}), 400
+    msg = fn(order_id, "ADMIN_API")
+    order = payments.get_order(order_id)
+    return jsonify({"success": bool(order), "message": msg,
+                    "status": order["status"] if order else "NOT_FOUND"})
+
+
+# ── Click Merchant SHOP API ───────────────────────────────
+def _click_resp(form, error: int, note: str, **extra):
+    body = {"click_trans_id": form.get("click_trans_id"),
+            "merchant_trans_id": form.get("merchant_trans_id"),
+            "error": error, "error_note": note}
+    body.update(extra)
+    return jsonify(body)  # Click har doim HTTP 200 kutadi
+
+
+def _click_common_checks(form, action: int):
+    if not payments.CLICK_SECRET_KEY:
+        return _click_resp(form, -8, "Click sozlanmagan")
+    if str(form.get("action")) != str(action):
+        return _click_resp(form, -3, "Action not found")
+    if not payments.click_sign_ok(form, action):
+        logger.warning(f"Click: imzo noto'g'ri! {dict(form)}")
+        return _click_resp(form, -1, "SIGN CHECK FAILED!")
+    if payments.CLICK_SERVICE_ID and form.get("service_id") != payments.CLICK_SERVICE_ID:
+        return _click_resp(form, -1, "Wrong service_id")
+    order = payments.get_order(form.get("merchant_trans_id"))
+    if not order:
+        return _click_resp(form, -5, "Order not found")
     try:
-        saved_path = Path(order["saved_path"])
-        color_mode = order.get("color_mode", "gray")
-        copies = order.get("copies", 1)
-        orientation = order.get("orientation", "portrait")
-        duplex = order.get("duplex", "one-sided")
-        page_ranges = order.get("page_ranges", "")
-
-        routing = get_printer_for_job(color_mode=color_mode, job_type="document")
-        if not routing.get("found"):
-            logger.error(f"Auto-print xatosi: {routing.get('reason')}")
-            return False
-
-        selected_printer = routing["cups_name"]
-        selected_media   = routing["media"]
-
-        if routing["type"] == "thermal":
-            printer_service.print_to_thermal(saved_path, copies=copies)
-        else:
-            ready_file = prepare_printable_file(saved_path)
-            cmd = ["lp", "-d", selected_printer, "-n", str(copies), "-o", f"media={selected_media}"]
-            if orientation == "landscape":
-                cmd.extend(["-o", "orientation-requested=4"])
-            else:
-                cmd.extend(["-o", "orientation-requested=3"])
-            if color_mode == "color":
-                cmd.extend(["-o", "ColorModel=Color"])
-            else:
-                cmd.extend(["-o", "ColorModel=Gray"])
-            if duplex == "two-sided":
-                cmd.extend(["-o", "sides=two-sided-long-edge"])
-            if page_ranges and page_ranges.lower() not in ["all", "barchasi"]:
-                cmd.extend(["-o", f"page-ranges={page_ranges}"])
-            cmd.append(str(ready_file))
-            subprocess.run(cmd, check=True)
-
-        order["status"] = "PAID"
-        recent_orders.append({
-            "id": order["id"],
-            "filename": order["filename"],
-            "amount": order["amount"],
-            "payment_method": payment_method,
-            "payment_status": "PAID",
-            "copies": copies,
-            "printer": selected_printer,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-        })
-        send_telegram_alert(f"✅ <b>To'lov Qabul Qilindi!</b>\nOrder: #{order['id']}\nSumma: {order['amount']} so'm\nPrinter: {selected_printer} (Chop etildi)")
-        return True
-    except Exception as e:
-        logger.error(f"Avtomatik chop etishda xatolik: {e}")
-        return False
+        if abs(float(form.get("amount", 0)) - float(order["amount"])) > 0.01:
+            return _click_resp(form, -2, "Incorrect parameter amount")
+    except ValueError:
+        return _click_resp(form, -2, "Incorrect parameter amount")
+    if order["status"] in ("PAID", "PRINTING", "PRINTED", "FAILED"):
+        return _click_resp(form, -4, "Already paid")
+    if order["status"] in ("REJECTED", "CANCELLED"):
+        return _click_resp(form, -9, "Transaction cancelled")
+    return order
 
 
-# Click Rasmiy Webhook integratsiyasi
 @app.route("/api/payments/click/prepare", methods=["POST"])
 def click_prepare():
-    click_trans_id = request.form.get("click_trans_id")
-    service_id = request.form.get("service_id")
-    merchant_trans_id = request.form.get("merchant_trans_id")  # Bu bizning order_id
-    amount = float(request.form.get("amount", 0))
-
-    order = pending_orders.get(merchant_trans_id)
-    if not order:
-        logger.warning(f"Click Prepare: Order #{merchant_trans_id} topilmadi!")
-        return jsonify({"error": -5, "error_note": "Order not found"}), 404
-
-    logger.info(f"Click Prepare muvaffaqiyatli: Order #{merchant_trans_id}, Summa={amount}")
-    return jsonify({
-        "click_trans_id": click_trans_id,
-        "merchant_trans_id": merchant_trans_id,
-        "merchant_prepare_id": click_trans_id,
-        "error": 0,
-        "error_note": "Success"
-    })
+    form = request.form
+    res = _click_common_checks(form, 0)
+    if not isinstance(res, dict):
+        return res
+    payments.set_status(res, res["status"], click_trans_id=form.get("click_trans_id"),
+                        click_prepare_id=int(time.time() * 1000) % 2_000_000_000)
+    return _click_resp(form, 0, "Success", merchant_prepare_id=res["click_prepare_id"])
 
 
 @app.route("/api/payments/click/complete", methods=["POST"])
 def click_complete():
-    click_trans_id       = request.form.get("click_trans_id")
-    merchant_trans_id    = request.form.get("merchant_trans_id")  # Bu bizning order_id
-    error                = request.form.get("error", 0)
-
-    if str(error) != "0":
-        return jsonify({"error": -1, "error_note": "Failed transaction"}), 400
-
-    order = pending_orders.get(merchant_trans_id)
-    if order:
-        logger.info(f"Click Complete: To'lov tasdiqlandi! Order #{merchant_trans_id}. Chop etish boshlanmoqda...")
-        _trigger_auto_print(order, payment_method="CLICK_WEBHOOK")
-
-    return jsonify({
-        "click_trans_id":       click_trans_id,
-        "merchant_trans_id":    merchant_trans_id,
-        "merchant_confirm_id":  click_trans_id,
-        "error":       0,
-        "error_note":  "Success"
-    })
+    form = request.form
+    res = _click_common_checks(form, 1)
+    if not isinstance(res, dict):
+        return res
+    order = res
+    if str(form.get("merchant_prepare_id")) != str(order.get("click_prepare_id")):
+        return _click_resp(form, -6, "Transaction does not exist")
+    if str(form.get("error", "0")) != "0":   # Click tomonida bekor qilingan
+        payments.set_status(order, "CANCELLED")
+        return _click_resp(form, -9, "Transaction cancelled")
+    confirm_order(order["id"], "CLICK")
+    return _click_resp(form, 0, "Success", merchant_confirm_id=order["click_prepare_id"])
 
 
-# Payme Rasmiy Webhook integratsiyasi (JSON-RPC)
+# ── Payme Merchant API (JSON-RPC) ─────────────────────────
 @app.route("/api/payments/payme", methods=["POST"])
 def payme_webhook():
     req = request.get_json(silent=True) or {}
-    method = req.get("method")
-    params = req.get("params", {})
+    rid, method, params = req.get("id"), req.get("method"), req.get("params", {}) or {}
+    err = payments.payme_error
+    if not payments.payme_auth_ok(request):
+        return jsonify(err(rid, -32504, "Avtorizatsiya xatosi"))
+
+    def ok(result):
+        return jsonify({"jsonrpc": "2.0", "id": rid, "result": result})
+
+    def check_order(p):
+        order = payments.get_order((p.get("account") or {}).get("order_id"))
+        if not order:
+            return None, err(rid, -31050, "Buyurtma topilmadi", "order_id")
+        if int(p.get("amount", -1)) != int(order["amount"]) * 100:
+            return None, err(rid, -31001, "Summa noto'g'ri")
+        if order["status"] not in ("PENDING", "CLAIMED"):
+            return None, err(rid, -31008, "Buyurtmani to'lab bo'lmaydi")
+        return order, None
+
+    now_ms = int(time.time() * 1000)
+    txns = payments.payme_txns
 
     if method == "CheckPerformTransaction":
-        order_id = params.get("account", {}).get("order_id")
-        order = pending_orders.get(order_id)
-        if not order:
-            return jsonify({"error": {"code": -31050, "message": {"uz": "Buyurtma topilmadi"}}})
-        return jsonify({"result": {"allow": True}})
+        order, e = check_order(params)
+        return jsonify(e) if e else ok({"allow": True})
 
-    elif method == "PerformTransaction":
-        order_id = params.get("account", {}).get("order_id")
-        order = pending_orders.get(order_id)
-        if order:
-            _trigger_auto_print(order, payment_method="PAYME_WEBHOOK")
-        return jsonify({"result": {"transaction": str(params.get("id")), "perform_time": int(time.time() * 1000), "state": 2}})
+    if method == "CreateTransaction":
+        tid = params.get("id")
+        if tid in txns:
+            t = txns[tid]
+            if t["state"] != 1:
+                return jsonify(err(rid, -31008, "Tranzaksiya faol emas"))
+            return ok({"create_time": t["create_time"], "transaction": t["transaction"], "state": 1})
+        order, e = check_order(params)
+        if e:
+            return jsonify(e)
+        busy = [t for t in txns.values() if t["order_id"] == order["id"] and t["state"] == 1]
+        if busy:
+            return jsonify(err(rid, -31050, "Buyurtma boshqa tranzaksiyada", "order_id"))
+        txns[tid] = {"id": tid, "order_id": order["id"], "transaction": order["id"],
+                     "amount": params.get("amount"), "time": params.get("time"),
+                     "create_time": now_ms, "perform_time": 0, "cancel_time": 0,
+                     "state": 1, "reason": None}
+        payments.save_state()
+        return ok({"create_time": now_ms, "transaction": order["id"], "state": 1})
 
-    return jsonify({"result": {"status": "ok"}})
+    t = txns.get(params.get("id"))
+    if method in ("PerformTransaction", "CancelTransaction", "CheckTransaction") and not t:
+        return jsonify(err(rid, -31003, "Tranzaksiya topilmadi"))
+
+    if method == "PerformTransaction":
+        if t["state"] == 1:
+            t["state"], t["perform_time"] = 2, now_ms
+            payments.save_state()
+            confirm_order(t["order_id"], "PAYME")
+        elif t["state"] != 2:
+            return jsonify(err(rid, -31008, "Tranzaksiya bekor qilingan"))
+        return ok({"transaction": t["transaction"], "perform_time": t["perform_time"], "state": 2})
+
+    if method == "CancelTransaction":
+        if t["state"] in (1, 2):
+            t["state"] = -1 if t["state"] == 1 else -2
+            t["cancel_time"], t["reason"] = now_ms, params.get("reason")
+            order = payments.get_order(t["order_id"])
+            if order and order["status"] in ("PENDING", "CLAIMED"):
+                payments.set_status(order, "CANCELLED")
+            payments.save_state()
+        return ok({"transaction": t["transaction"], "cancel_time": t["cancel_time"], "state": t["state"]})
+
+    if method == "CheckTransaction":
+        return ok({k: t[k] for k in ("create_time", "perform_time", "cancel_time",
+                                     "transaction", "state", "reason")})
+
+    if method == "GetStatement":
+        frm, to = int(params.get("from", 0)), int(params.get("to", now_ms))
+        return ok({"transactions": [
+            {"id": x["id"], "time": x["time"], "amount": x["amount"],
+             "account": {"order_id": x["order_id"]}, "create_time": x["create_time"],
+             "perform_time": x["perform_time"], "cancel_time": x["cancel_time"],
+             "transaction": x["transaction"], "state": x["state"], "reason": x["reason"]}
+            for x in txns.values() if frm <= x["create_time"] <= to]})
+
+    return jsonify(err(rid, -32601, "Metod topilmadi"))
+
+
+def _require_paid_or_admin():
+    """Eski to'g'ridan-to'g'ri chop etish endpointlari uchun himoya."""
+    if payments.REQUIRE_PAYMENT and not payments.is_admin(request):
+        return jsonify({
+            "success": False, "payment_required": True,
+            "message": "To'lov tasdiqlanmagan. Avval /api/order/create orqali buyurtma yarating."
+        }), 402
+    return None
+
+
+def _resume_worker(order: dict):
+    """Server qayta yonganda CUPS'ga allaqachon yuborilgan ishni kuzatishni davom ettiradi."""
+    ok, reason = _wait_cups_job(order, order.get("printer", ""), int(order["cups_job"]))
+    if ok:
+        payments.set_status(order, "PRINTED", printed_at=time.time(), stuck=False, note="")
+        payments.tg_send(f"✅ <b>#{order['id']} chop etildi</b> → {order.get('printer', '')} "
+                         f"(server qayta ishga tushgandan keyin)\n💰 {order['amount']} so'm")
+    else:
+        _fail_order(order, reason)
+
+
+def _resume_interrupted_orders():
+    now = time.time()
+    for o in list(payments.orders.values()):
+        if now - o.get("paid_at", o.get("created_at", 0)) > 3 * 3600:
+            continue
+        if o.get("status") == "PRINTING" and o.get("cups_job") and o.get("printer"):
+            logger.info(f"#{o['id']}: CUPS ishi #{o['cups_job']} kuzatuvi davom ettirilmoqda")
+            threading.Thread(target=_resume_worker, args=(o,), daemon=True).start()
+        elif o.get("status") in ("PAID", "PRINTING"):
+            logger.info(f"#{o['id']}: to'langan, lekin chop etilmagan — navbatga qo'yildi")
+            _start_print(o)
+
+
+def start_background_workers():
+    payments.load_state()
+    if payments.DEMO_AUTO_CONFIRM:
+        logger.warning("DEMO_AUTO_CONFIRM=1: to'lovlar AVTOMATIK tasdiqlanadi — faqat lokal demo uchun!")
+    _resume_interrupted_orders()
+    if payments.telegram_enabled():
+        payments.TelegramPoller(confirm_order, reject_order, reprint_order).start()
+    else:
+        logger.warning("Telegram sozlanmagan: to'lovlarni faqat Admin API orqali tasdiqlash mumkin.")
+    if payments.REQUIRE_PAYMENT and not (payments.ADMIN_TOKEN or payments.telegram_enabled()):
+        logger.error("DIQQAT: REQUIRE_PAYMENT_VERIFICATION=true, lekin ADMIN_TOKEN ham, Telegram ham yo'q — "
+                     "hech bir buyurtmani tasdiqlab bo'lmaydi!")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -782,6 +1083,8 @@ def admin_upload_template():
       - file: PDF yoki DOCX fayl
       - name, description, category, price_per_page (ixtiyoriy)
     """
+    if not payments.is_admin(request):
+        return jsonify({"success": False, "message": "Admin token noto'g'ri yoki sozlanmagan"}), 401
     if "file" not in request.files:
         return jsonify({"success": False, "message": "Fayl yuborilmadi"}), 400
 
@@ -843,6 +1146,8 @@ def admin_upload_template():
 @app.route("/api/admin/templates/delete/<template_id>", methods=["DELETE"])
 def admin_delete_template(template_id: str):
     """Admin: shablonni o'chirish."""
+    if not payments.is_admin(request):
+        return jsonify({"success": False, "message": "Admin token noto'g'ri yoki sozlanmagan"}), 401
     templates = _load_templates()
     for t in templates:
         t.pop("file_exists", None)
@@ -863,7 +1168,10 @@ def admin_delete_template(template_id: str):
 
 @app.route("/api/templates/print", methods=["POST"])
 def print_template():
-    """Tanlangan shablonni chop etadi."""
+    """Tanlangan shablonni chop etadi (faqat admin; mijozlar /api/order/create orqali)."""
+    blocked = _require_paid_or_admin()
+    if blocked:
+        return blocked
     data        = request.get_json() or {}
     template_id = data.get("template_id", "")
     copies      = max(1, min(int(data.get("copies", 1)), 10))
@@ -906,8 +1214,13 @@ def print_template():
             return jsonify({"success": False, "message": f"Termal printer xatosi: {str(e)}"}), 500
     # CUPS orqali chop etish (Lazer / Rangli)
     elif shutil.which("lp"):
+        try:
+            ready_file = prepare_printable_file(file_path)  # DOCX → PDF (LibreOffice)
+        except Exception as e:
+            logger.error(f"Shablonni PDF ga aylantirishda xatolik: {e}")
+            return jsonify({"success": False, "message": f"Shablonni tayyorlashda xatolik: {e}"}), 500
         cmd = ["lp", "-d", printer, "-n", str(copies),
-               "-o", f"media={routing['media']}", str(file_path)]
+               "-o", f"media={routing['media']}", str(ready_file)]
         try:
             proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, check=True)
@@ -930,188 +1243,8 @@ def print_template():
     return jsonify({"success": True, "message": msg, "order": order})
 
 
-# ═══════════════════════════════════════════════════════════
-# AI WRITER API
-# ═══════════════════════════════════════════════════════════
-
-@app.route("/api/ai/doc-types", methods=["GET"])
-def get_doc_types():
-    """AI Writer uchun hujjat turlari ro'yxatini qaytaradi."""
-    if not AI_WRITER_AVAILABLE:
-        return jsonify({"success": False, "message": "AI Writer mavjud emas"}), 503
-    return jsonify({"success": True, "doc_types": DOC_TYPES})
-
-
-@app.route("/api/ai/price", methods=["POST"])
-def get_ai_price():
-    """Hujjat narxini oldindan hisoblaydi."""
-    if not AI_WRITER_AVAILABLE:
-        return jsonify({"success": False, "message": "AI Writer mavjud emas"}), 503
-
-    data        = request.get_json() or {}
-    doc_type    = data.get("doc_type", "ariza")
-    word_count  = int(data.get("word_count", 200))
-    print_pages = int(data.get("print_pages", 1))
-    color       = data.get("color", False)
-
-    price = calculate_price(doc_type, word_count, print_pages=print_pages, color=color)
-    return jsonify({"success": True, "price": price})
-
-
-@app.route("/api/ai/write", methods=["POST"])
-def ai_write():
-    """
-    AI yordamida hujjat yaratadi va DOCX faylini qaytaradi.
-    Multipart/form-data qabul qiladi (matn va/yoki rasm).
-    """
-    if not AI_WRITER_AVAILABLE:
-        return jsonify({"success": False, "message": "AI Writer mavjud emas (GEMINI_API_KEY kerak)"}), 503
-
-    doc_type     = request.form.get("doc_type", "ariza")
-    recipient    = request.form.get("recipient", "")
-    content      = request.form.get("content", "")
-    author_name  = request.form.get("author_name", "")
-    date_str     = request.form.get("date", "")
-    organization = request.form.get("organization", "")
-
-    if not doc_type or not content:
-        return jsonify({
-            "success": False,
-            "message": "Hujjat turi va mazmun kiritish shart!"
-        }), 400
-
-    # Rasm (ixtiyoriy)
-    image_bytes = None
-    image_mime  = "image/jpeg"
-    if "image" in request.files:
-        img_file    = request.files["image"]
-        image_bytes = img_file.read()
-        image_mime  = img_file.mimetype or "image/jpeg"
-        logger.info(f"Rasm qabul qilindi: {img_file.filename} ({len(image_bytes)} bayt)")
-
-    try:
-        # AI hujjat yaratish
-        result = generate_document_text(
-            doc_type=doc_type,
-            recipient=recipient,
-            content=content,
-            author_name=author_name,
-            date=date_str,
-            organization=organization,
-            image_bytes=image_bytes,
-            image_mime=image_mime,
-        )
-
-        # DOCX fayl yaratish
-        doc_id    = str(uuid.uuid4())[:8]
-        docx_path = UPLOAD_FOLDER / f"ai_{doc_type}_{doc_id}.docx"
-        create_docx(
-            text=result["text"],
-            doc_type=doc_type,
-            author_name=author_name,
-            output_path=docx_path,
-        )
-
-        logger.info(f"AI hujjat yaratildi: {docx_path} ({result['word_count']} so'z)")
-        return jsonify({
-            "success":    True,
-            "doc_id":     doc_id,
-            "text":       result["text"],
-            "word_count": result["word_count"],
-            "price":      result["price"],
-            "download_url": f"/api/ai/download/{doc_id}",
-            "print_url":    f"/api/ai/print/{doc_id}",
-        })
-
-    except ValueError as e:
-        return jsonify({"success": False, "message": str(e)}), 400
-    except RuntimeError as e:
-        return jsonify({"success": False, "message": str(e)}), 503
-    except Exception as e:
-        logger.error(f"AI Writer xatolik: {e}")
-        return jsonify({"success": False, "message": f"Hujjat yaratishda xatolik: {str(e)}"}), 500
-
-
-@app.route("/api/ai/download/<doc_id>", methods=["GET"])
-def ai_download(doc_id: str):
-    """Yaratilgan DOCX faylni yuklab olish."""
-    # Xavfsizlik: faqat ruxsat etilgan belgilar
-    safe_id = "".join(c for c in doc_id if c.isalnum() or c == "-")
-    matches = list(UPLOAD_FOLDER.glob(f"ai_*_{safe_id}.docx"))
-    if not matches:
-        return jsonify({"success": False, "message": "Fayl topilmadi"}), 404
-
-    return send_file(
-        matches[0],
-        as_attachment=True,
-        download_name=f"hujjat_{safe_id}.docx",
-        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
-
-
-@app.route("/api/ai/print/<doc_id>", methods=["POST"])
-def ai_print(doc_id: str):
-    """Yaratilgan AI hujjatni to'lovdan so'ng chop etadi."""
-    safe_id = "".join(c for c in doc_id if c.isalnum() or c == "-")
-    matches = list(UPLOAD_FOLDER.glob(f"ai_*_{safe_id}.docx"))
-    if not matches:
-        return jsonify({"success": False, "message": "Fayl topilmadi"}), 404
-
-    docx_path  = matches[0]
-    data       = request.get_json() or {}
-    color_mode = data.get("color_mode", "gray")
-    copies     = max(1, min(int(data.get("copies", 1)), 10))
-
-    # Smart Router
-    routing = get_printer_for_job(color_mode=color_mode, job_type="document")
-    if not routing.get("found"):
-        return jsonify({"success": False, "message": routing.get("reason")}), 503
-
-    printer = routing["cups_name"]
-    media   = routing["media"]
-
-    # DOCX → PDF konvertatsiya (LibreOffice)
-    try:
-        ready_file = prepare_printable_file(docx_path)
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-    amount = data.get("amount", "0")
-    logger.info(f"AI hujjat chop etish: {docx_path.name} → [{printer}] | {amount} so'm")
-
-    # ── Termal printer (XP-58) to'g'ridan-to'g'ri chop etish ──
-    if routing.get("type") == "thermal":
-        try:
-            printer_service.print_to_thermal(docx_path, copies=copies)
-        except Exception as e:
-            logger.error(f"Termal AI hujjat chop etish xatosi: {e}")
-            return jsonify({"success": False, "message": f"Termal printer xatosi: {str(e)}"}), 500
-    # CUPS orqali chop etish (Lazer / Rangli)
-    elif shutil.which("lp"):
-        cmd = ["lp", "-d", printer, "-n", str(copies),
-               "-o", f"media={media}", "-o", "ColorModel=Gray", str(ready_file)]
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except subprocess.CalledProcessError as err:
-            return jsonify({"success": False, "message": f"Printer xatosi: {err.stderr}"}), 500
-
-    order = {
-        "id":        safe_id,
-        "type":      "ai_document",
-        "amount":    amount,
-        "copies":    copies,
-        "printer":   printer,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    recent_orders.append(order)
-    return jsonify({
-        "success": True,
-        "message": f"AI hujjat [{printer}] printerga yuborildi!",
-        "order":   order,
-    })
-
-
 if __name__ == "__main__":
     logger.info("Smart Web-Printchi serveri ishga tushmoqda...")
     logger.info(f"Manzil: http://{SERVER_HOST}:{SERVER_PORT}")
+    start_background_workers()
     app.run(host=SERVER_HOST, port=SERVER_PORT, debug=False)

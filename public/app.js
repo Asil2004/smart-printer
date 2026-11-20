@@ -1,1282 +1,721 @@
-// ----------------- ELEMENTLAR VA HOLATLAR -----------------
-let PRICE_BW = 500;
-let PRICE_COLOR = 1500;
-let detectedPages = 1;
+/**
+ * Smart Printchi — frontend ("Bento + Chat" UI)
+ * ==============================================
+ * Bitta ekran: chat yordamchi + bento kartochkalar + to'lov paneli.
+ * Narx va sahifa soni har doim SERVERDA tasdiqlanadi (/api/order/create),
+ * brauzerdagi hisob faqat oldindan ko'rsatish uchun.
+ *
+ * Backend API: /api/printers, /api/health, /api/inspect-file, /api/templates,
+ *   /api/order/create, /api/order/<id>/claim, /api/order/status/<id>,
+ *   /api/admin/templates/upload|delete (X-Admin-Token)
+ */
+(() => {
+  'use strict';
 
-const statusBadge = document.getElementById('statusBadge');
-const settingsBtn = document.getElementById('settingsBtn');
-const printForm = document.getElementById('printForm');
-const fileInput = document.getElementById('fileInput');
-const dropZone = document.getElementById('dropZone');
-const promptContent = document.getElementById('promptContent');
-const fileInfoBox = document.getElementById('fileInfoBox');
-const fileNameTxt = document.getElementById('fileNameTxt');
-const fileSizeTxt = document.getElementById('fileSizeTxt');
-const filePagesTxt = document.getElementById('filePagesTxt');
-const fileTypeIcon = document.getElementById('fileTypeIcon');
-const removeFileBtn = document.getElementById('removeFileBtn');
-const printSubmitBtn = document.getElementById('printSubmitBtn');
+  // ── Sozlamalar ──────────────────────────────────────────
+  const MAX_BYTES = 64 * 1024 * 1024;
+  const EXTS = ['pdf', 'docx', 'png', 'jpg', 'jpeg'];
+  const MAX_COPIES = 10;
+  const POLL_MS = 2000;
+  const HDR = { 'ngrok-skip-browser-warning': 'true' };
 
-// Sozlamalar
-const copiesVal = document.getElementById('copiesVal');
-const plusCopyBtn = document.getElementById('plusCopyBtn');
-const minusCopyBtn = document.getElementById('minusCopyBtn');
-const pageRangesInput = document.getElementById('pageRangesInput');
+  const $ = (id) => document.getElementById(id);
+  const api = (path) => `${AppConfig.getApiUrl()}${path}`;
 
-// Kalkulyator
-const calcPagesCount = document.getElementById('calcPagesCount');
-const calcCopiesCount = document.getElementById('calcCopiesCount');
-const calcSheetsCount = document.getElementById('calcSheetsCount');
-const totalPriceTxt = document.getElementById('totalPriceTxt');
-
-// ----------------- TAB NAVIGATSIYA -----------------
-function switchTab(tab) {
-  ['print', 'templates', 'ai'].forEach(t => {
-    const sec = document.getElementById(`section-${t}`);
-    const btn = document.getElementById(`tab-${t}`);
-    if (!sec || !btn) return;
-    if (t === tab) {
-      sec.classList.remove('hidden');
-      btn.classList.add('bg-blue-600', 'text-white', 'shadow-sm');
-      btn.classList.remove('text-slate-500');
-    } else {
-      sec.classList.add('hidden');
-      btn.classList.remove('bg-blue-600', 'text-white', 'shadow-sm');
-      btn.classList.add('text-slate-500');
-    }
-  });
-  if (tab === 'templates') loadTemplates();
-}
-
-// ----------------- BACKEND ALOQASINI TEKSHIRISH -----------------
-async function checkBackendHealth() {
-  statusBadge.innerHTML = `
-    <span class="w-2 h-2 rounded-full bg-amber-500 inline-block animate-pulse"></span>
-    <span>Ulanmoqda...</span>
-  `;
-
-  const candidates = [];
-
-  // 1. Agar foydalanuvchi bevosita backend (Cloudflare, localhost yoki lokal IP) da bo'lsa:
-  if (!window.location.hostname.includes("netlify.app") && !window.location.hostname.includes("github.io")) {
-    candidates.push(window.location.origin);
-  }
-
-  // 2. Doimiy konfiguratsiya qilingan DEFAULT_API_URL
-  if (AppConfig.DEFAULT_API_URL && !candidates.includes(AppConfig.DEFAULT_API_URL)) {
-    candidates.push(AppConfig.DEFAULT_API_URL);
-  }
-
-  // 3. Foydalanuvchi qo'lda kiritgan sozlama (localStorage)
-  const manual = localStorage.getItem("PRINTCHI_API_URL");
-  if (manual && manual.trim() && !candidates.includes(manual.trim())) {
-    candidates.push(manual.trim().replace(/\/+$/, ""));
-  }
-
-  // Har bir nomzod URL ni tezkor tekshirish (maksimal 3 soniya)
-  async function testCandidate(url) {
-    if (!url) return null;
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
-      const res = await fetch(`${url}/api/health`, {
-        method: "GET",
-        headers: { "ngrok-skip-browser-warning": "true" },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch (e) {
-      // nomzod javob bermadi
-    }
-    return null;
-  }
-
-  for (const url of candidates) {
-    const data = await testCandidate(url);
-    if (data && data.status === "online") {
-      AppConfig._activeUrl = url;
-      AppConfig.setApiUrl(url);
-      PRICE_BW = data.price_bw || 500;
-      PRICE_COLOR = data.price_color || 1500;
-      statusBadge.innerHTML = `
-        <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-        <span class="text-emerald-700 font-semibold truncate max-w-[140px]">${data.printer || "Printer tayyor"}</span>
-      `;
-      updatePricing();
-      loadPrinterStatus();
-      return true;
-    }
-  }
-
-  // 4. Dinamik ntfy relaydan eng so'nggi jonli URL ni so'rash
-  try {
-    const live = await AppConfig.fetchLatestLiveUrl();
-    if (live && !candidates.includes(live)) {
-      const data = await testCandidate(live);
-      if (data && data.status === "online") {
-        AppConfig._activeUrl = live;
-        AppConfig.setApiUrl(live);
-        PRICE_BW = data.price_bw || 500;
-        PRICE_COLOR = data.price_color || 1500;
-        statusBadge.innerHTML = `
-          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-          <span class="text-emerald-700 font-semibold truncate max-w-[140px]">${data.printer || "Printer tayyor"}</span>
-        `;
-        updatePricing();
-        loadPrinterStatus();
-        return true;
-      }
-    }
-  } catch(e) {}
-
-  statusBadge.innerHTML = `
-    <span class="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-    <span class="text-rose-600 font-semibold cursor-pointer" onclick="openSettingsModal()">Terminal oflayn (⚙️)</span>
-  `;
-  return false;
-}
-
-// ----------------- SOZLAMALAR MODALI (SETTINGS) -----------------
-function openSettingsModal() {
-  const currentUrl = AppConfig.getApiUrl();
-  const payCfg = AppConfig.getPaymentConfig();
-
-  Swal.fire({
-    title: "Tizim va To‘lov Sozlamalari",
-    html: `
-      <div class="text-left text-xs text-slate-600 space-y-3">
-        <div>
-          <label class="font-bold text-slate-700 block mb-1">Raspberry Pi API Manzili:</label>
-          <input id="swalApiUrlInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="https://snazzy-chosen-lyricism.ngrok-free.dev" value="${currentUrl}">
-        </div>
-        <div class="pt-2 border-t border-slate-100">
-          <label class="font-bold text-slate-700 block mb-1">To‘lov Karta Raqami (Uzcard / Humo):</label>
-          <input id="swalCardNumberInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="8600 0000 0000 0000" value="${payCfg.cardNumber || ''}">
-        </div>
-        <div>
-          <label class="font-bold text-slate-700 block mb-1">Karta Egasi Ism-Familiyasi:</label>
-          <input id="swalCardHolderInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="F.I.SH." value="${payCfg.cardHolder || ''}">
-        </div>
-        <div>
-          <label class="font-bold text-slate-700 block mb-1">Click / Payme Telefon Raqami:</label>
-          <input id="swalPhoneInput" class="swal2-input !text-xs !w-full !m-0 !box-border" placeholder="+998901234567" value="${payCfg.clickPhone || ''}">
-        </div>
-      </div>
-    `,
-    showCancelButton: true,
-    confirmButtonColor: "#2563eb",
-    cancelButtonColor: "#64748b",
-    confirmButtonText: "Saqlash",
-    cancelButtonText: "Bekor qilish",
-    preConfirm: () => {
-      return {
-        apiUrl: document.getElementById("swalApiUrlInput").value.trim(),
-        cardNumber: document.getElementById("swalCardNumberInput").value.trim(),
-        cardHolder: document.getElementById("swalCardHolderInput").value.trim(),
-        phone: document.getElementById("swalPhoneInput").value.trim()
-      };
-    }
-  }).then((result) => {
-    if (result.isConfirmed) {
-      const data = result.value;
-      AppConfig.setApiUrl(data.apiUrl);
-      const updatedCfg = {
-        ...payCfg,
-        cardNumber: data.cardNumber || payCfg.cardNumber,
-        cardHolder: data.cardHolder || payCfg.cardHolder,
-        clickPhone: data.phone || payCfg.clickPhone,
-        paymePhone: data.phone || payCfg.paymePhone
-      };
-      AppConfig.setPaymentConfig(updatedCfg);
-      checkBackendHealth();
-      Swal.fire({
-        icon: "success",
-        title: "Saqlandi!",
-        text: "Barcha sozlamalar muvaffaqiyatli yangilandi.",
-        timer: 1500,
-        showConfirmButton: false
-      });
-    }
-  });
-}
-
-if (settingsBtn) settingsBtn.addEventListener("click", openSettingsModal);
-
-// ----------------- PRINTER STATUS PANELI -----------------
-const PRINTER_ICONS = {
-  thermal:  { icon: 'fa-receipt',   color: 'text-amber-500',  bg: 'bg-amber-50'  },
-  laser_bw: { icon: 'fa-print',     color: 'text-slate-600',  bg: 'bg-slate-50'  },
-  color:    { icon: 'fa-palette',   color: 'text-pink-500',   bg: 'bg-pink-50'   },
-};
-
-async function loadPrinterStatus() {
-  const list = document.getElementById('printerStatusList');
-  if (!list) return;
-  const apiUrl = AppConfig.getApiUrl();
-  if (!apiUrl) return;
-
-  try {
-    const res = await fetch(`${apiUrl}/api/printers`, {
-      headers: { "ngrok-skip-browser-warning": "true" }
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error('API xatosi');
-
-    list.innerHTML = data.printers.map(p => {
-      const meta = PRINTER_ICONS[p.type] || { icon: 'fa-print', color: 'text-slate-400', bg: 'bg-slate-50' };
-      const isReady = p.ready !== undefined ? p.ready : p.connected;
-      const isConnected = p.connected;
-      const reason = p.status_reason || (isConnected ? "Tayyor" : "Ulanmagan");
-
-      let dot = '<span class="w-2 h-2 rounded-full bg-slate-300 inline-block flex-shrink-0"></span>';
-      let stateBadge = `<span class="text-[10px] text-slate-400">Ulanmagan</span>`;
-      let cardBg = 'bg-slate-50 border border-slate-100';
-
-      if (isConnected) {
-        if (isReady) {
-          dot = '<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse flex-shrink-0"></span>';
-          stateBadge = '<span class="text-[10px] text-emerald-600 font-medium">✅ Tayyor</span>';
-          cardBg = 'bg-emerald-50/60 border border-emerald-100';
-        } else {
-          dot = '<span class="w-2 h-2 rounded-full bg-rose-500 inline-block animate-ping flex-shrink-0"></span>';
-          stateBadge = `<span class="text-[10px] text-rose-600 font-bold bg-rose-100 px-1.5 py-0.5 rounded">⚠️ ${reason}</span>`;
-          cardBg = 'bg-rose-50/70 border border-rose-200';
-        }
-      }
-
-      const nameText = isConnected
-        ? `<span class="font-semibold text-slate-800">${p.cups_name || p.label}</span>`
-        : `<span class="text-slate-400">${p.label}</span>`;
-
-      return `<div class="flex items-center gap-3 px-3 py-2 rounded-xl ${cardBg}">
-        <div class="w-8 h-8 rounded-lg ${meta.bg} flex items-center justify-center flex-shrink-0">
-          <i class="fa-solid ${meta.icon} text-sm ${meta.color}"></i>
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="text-xs flex items-center gap-1.5">${dot} ${nameText}</div>
-          <div class="mt-0.5">${stateBadge}</div>
-        </div>
-      </div>`;
-    }).join('');
-    updateRoutingHint();
-  } catch (e) {
-    list.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">Printerlar holatini olib bo\'lmadi</div>';
-  }
-}
-
-function updateRoutingHint() {
-  const colorMode = document.querySelector('input[name="color_mode"]:checked')?.value || 'gray';
-  const hintEl    = document.getElementById('routingHint');
-  const hintText  = document.getElementById('routingHintText');
-  if (!hintEl || !hintText) return;
-  const HINTS = {
-    gray:  'Oq-qora → Canon lazer printerga yuboriladi',
-    color: 'Rangli  → Rangli printerga yuboriladi'
+  // ── Holat ───────────────────────────────────────────────
+  const S = {
+    view: 'print',
+    file: null,            // File
+    fileExt: '',
+    pages: 0,              // fayldagi jami betlar
+    counting: false,
+    copies: 1,
+    orientation: 'portrait',
+    color: 'gray',
+    rangeMode: 'all',      // all | custom
+    rangeText: '',
+    priceBw: 500,
+    priceColor: 1500,
+    printers: [],
+    printerReady: false,
+    colorReady: false,
+    online: null,          // null = tekshirilmoqda
+    userMsg: '',
+    botLead: '',
+    templates: [],
+    order: null,           // {id, amount, pages, source}
+    payMethod: 'qr',
+    pollTimer: null,
+    lastStatus: '',
   };
-  hintText.textContent = HINTS[colorMode] || '';
-  hintEl.classList.remove('hidden');
-}
 
-document.querySelectorAll('input[name="color_mode"]').forEach(r => {
-  r.addEventListener('change', updateRoutingHint);
-});
+  // ── Yordamchi funksiyalar ───────────────────────────────
+  const money = (n) => String(Math.round(n || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' so‘m';
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtSize = (b) => b > 1048576 ? (b / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
 
-// ----------------- FAYL VA KALKULYATOR MANTIG'I -----------------
-function formatBytes(bytes) {
-  if (!bytes) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-
-async function detectPdfPages(file) {
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    return pdf.numPages || 1;
-  } catch (e) {
-    console.warn("PDF.js orqali sahifalarni o'qishda xatolik:", e);
-    return 1;
-  }
-}
-
-function parsePageRanges(rangeStr, totalPages) {
-  if (!rangeStr || !rangeStr.trim()) return totalPages;
-  const parts = rangeStr.split(",");
-  let count = 0;
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (trimmed.includes("-")) {
-      const [start, end] = trimmed.split("-").map(n => parseInt(n.trim(), 10));
-      if (!isNaN(start) && !isNaN(end)) {
-        count += Math.max(0, Math.min(end, totalPages) - Math.max(1, start) + 1);
-      }
-    } else {
-      const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= totalPages) {
-        count += 1;
-      }
-    }
-  }
-  return count > 0 ? count : totalPages;
-}
-
-function updatePricing() {
-  const colorMode = document.querySelector('input[name="color_mode"]:checked')?.value || 'gray';
-  const duplex = document.querySelector('input[name="duplex"]:checked')?.value || 'one-sided';
-  const copies = parseInt(copiesVal ? copiesVal.value : 1) || 1;
-  const ranges = pageRangesInput ? pageRangesInput.value.trim() : '';
-
-  const effectivePages = parsePageRanges(ranges, detectedPages);
-  const pricePerPage = colorMode === 'color' ? PRICE_COLOR : PRICE_BW;
-  const totalPrice = effectivePages * copies * pricePerPage;
-
-  let sheets = effectivePages * copies;
-  if (duplex === 'two-sided') {
-    sheets = Math.ceil(sheets / 2);
+  let toastTimer = null;
+  function toast(text, kind = '') {
+    const t = $('toast');
+    t.textContent = text;
+    t.className = 'toast' + (kind ? ' ' + kind : '');
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 4200);
   }
 
-  if (calcPagesCount) calcPagesCount.textContent = effectivePages;
-  if (calcCopiesCount) calcCopiesCount.textContent = copies;
-  if (calcSheetsCount) calcSheetsCount.textContent = `${sheets} varaq`;
-  if (totalPriceTxt) totalPriceTxt.textContent = totalPrice.toLocaleString();
-}
-
-// Fayl tanlash
-if (fileInput) {
-  fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    fileNameTxt.textContent = file.name;
-    fileSizeTxt.textContent = formatBytes(file.size);
-
-    const ext = file.name.split('.').pop().toLowerCase();
-    if (ext === 'pdf') {
-      fileTypeIcon.className = 'fa-solid fa-file-pdf';
-      filePagesTxt.textContent = 'Sahifalar sanalmoqda...';
-      detectedPages = await detectPdfPages(file);
-      filePagesTxt.textContent = `${detectedPages} sahifa`;
-    } else if (ext === 'docx') {
-      fileTypeIcon.className = 'fa-solid fa-file-word';
-      detectedPages = 1;
-      filePagesTxt.textContent = 'Word hujjati';
-    } else if (['jpg', 'jpeg', 'png'].includes(ext)) {
-      fileTypeIcon.className = 'fa-solid fa-file-image';
-      detectedPages = 1;
-      filePagesTxt.textContent = '1 sahifa (Rasm)';
-    } else {
-      fileTypeIcon.className = 'fa-solid fa-file';
-      detectedPages = 1;
-      filePagesTxt.textContent = '1 sahifa';
-    }
-
-    promptContent.classList.add('hidden');
-    fileInfoBox.classList.remove('hidden');
-    updatePricing();
-  });
-}
-
-if (removeFileBtn) {
-  removeFileBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    fileInput.value = '';
-    fileInfoBox.classList.add('hidden');
-    promptContent.classList.remove('hidden');
-    detectedPages = 1;
-    updatePricing();
-  });
-}
-
-// Nusxa tugmalari
-if (plusCopyBtn) {
-  plusCopyBtn.addEventListener('click', () => {
-    let c = parseInt(copiesVal.value) || 1;
-    if (c < 10) copiesVal.value = c + 1;
-    updatePricing();
-  });
-}
-
-if (minusCopyBtn) {
-  minusCopyBtn.addEventListener('click', () => {
-    let c = parseInt(copiesVal.value) || 1;
-    if (c > 1) copiesVal.value = c - 1;
-    updatePricing();
-  });
-}
-
-if (pageRangesInput) pageRangesInput.addEventListener('input', updatePricing);
-document.querySelectorAll('input[name="color_mode"], input[name="duplex"]').forEach(input => {
-  input.addEventListener('change', updatePricing);
-});
-
-// ----------------- SHABLONLAR -----------------
-let allTemplates = [];
-let selectedTemplate = null;
-
-async function loadTemplates() {
-  const apiUrl = AppConfig.getApiUrl();
-  const grid = document.getElementById('templateGrid');
-  if (!grid || !apiUrl) return;
-
-  if (allTemplates.length > 0) { renderTemplates(allTemplates); return; }
-  try {
-    const res = await fetch(`${apiUrl}/api/templates`, {
-      headers: { "ngrok-skip-browser-warning": "true" }
-    });
-    const data = await res.json();
-    allTemplates = data.templates || [];
-    renderTemplates(allTemplates);
-  } catch (e) {
-    grid.innerHTML = '<div class="col-span-2 text-center text-xs text-rose-400 py-6">Shablonlar yuklanmadi</div>';
-  }
-}
-
-function renderTemplates(list) {
-  const grid = document.getElementById('templateGrid');
-  if (!grid) return;
-  if (!list.length) {
-    grid.innerHTML = '<div class="col-span-2 text-center text-xs text-slate-400 py-6">Shablonlar topilmadi</div>';
-    return;
-  }
-  grid.innerHTML = list.map(t => `
-    <div onclick="openTemplateModal(${JSON.stringify(t).replace(/"/g, '&quot;')})"
-      class="bg-white rounded-2xl border border-slate-200 p-3 shadow-sm cursor-pointer hover:border-blue-400 hover:shadow-md transition-all active:scale-95">
-      <div class="w-10 h-10 rounded-xl ${t.color ? 'bg-pink-50' : 'bg-blue-50'} flex items-center justify-center mb-2">
-        <i class="fa-solid fa-file-pdf text-xl ${t.color ? 'text-pink-500' : 'text-blue-500'}"></i>
-      </div>
-      <div class="text-xs font-bold text-slate-800 leading-tight mb-0.5">${t.name}</div>
-      <div class="text-[10px] text-slate-400 leading-tight mb-2 line-clamp-2">${t.description}</div>
-      <div class="flex items-center justify-between">
-        <span class="text-[11px] font-bold text-blue-600">${t.price_per_page.toLocaleString()} so'm</span>
-        ${t.file_exists
-          ? '<span class="text-[10px] text-emerald-600 font-medium">✓ Mavjud</span>'
-          : '<span class="text-[10px] text-slate-400">Fayl yo\'q</span>'}
-      </div>
-    </div>`).join('');
-}
-
-function filterTemplates(cat) {
-  document.querySelectorAll('.filter-btn').forEach(b => {
-    b.classList.remove('bg-blue-600', 'text-white');
-    b.classList.add('text-slate-500');
-  });
-  const activeId = cat ? `filter-${cat}` : 'filter-all';
-  const activeBtn = document.getElementById(activeId);
-  if (activeBtn) {
-    activeBtn.classList.add('bg-blue-600', 'text-white');
-    activeBtn.classList.remove('text-slate-500');
-  }
-  const filtered = cat ? allTemplates.filter(t => t.category === cat) : allTemplates;
-  renderTemplates(filtered);
-}
-
-function openTemplateModal(tmpl) {
-  selectedTemplate = tmpl;
-  document.getElementById('tmplModalName').textContent = tmpl.name;
-  document.getElementById('tmplModalDesc').textContent = tmpl.description;
-  document.getElementById('tmplModalPrice').textContent = `${tmpl.price_per_page.toLocaleString()} so'm/bet`;
-  const m = document.getElementById('templateModal');
-  m.classList.remove('hidden');
-  m.style.display = 'flex';
-  document.getElementById('tmplPrintBtn').onclick = () => printTemplate(tmpl);
-  document.getElementById('tmplDeleteBtn').onclick = () => deleteTemplate(tmpl);
-}
-
-function closeTemplateModal() {
-  const m = document.getElementById('templateModal');
-  m.classList.add('hidden');
-  m.style.display = 'none';
-}
-
-async function deleteTemplate(tmpl) {
-  closeTemplateModal();
-  const confirmed = await Swal.fire({
-    icon: 'warning',
-    title: "O'chirishni tasdiqlang",
-    text: `"${tmpl.name}" shabloni o'chiriladi!`,
-    showCancelButton: true,
-    confirmButtonColor: '#e11d48',
-    cancelButtonText: 'Bekor',
-    confirmButtonText: "Ha, o'chir"
-  });
-  if (!confirmed.isConfirmed) return;
-
-  const apiUrl = AppConfig.getApiUrl();
-  try {
-    const res = await fetch(`${apiUrl}/api/admin/templates/delete/${tmpl.id}`, {
-      method: 'DELETE',
-      headers: { "ngrok-skip-browser-warning": "true" }
-    });
-    const data = await res.json();
-    allTemplates = [];
-    loadTemplates();
-    Swal.fire({ icon: data.success ? 'success' : 'error', title: data.message, timer: 2000, showConfirmButton: false });
-  } catch (e) {
-    Swal.fire({ icon: 'error', title: 'Xatolik', text: 'Server bilan bog\'lanishda xatolik' });
-  }
-}
-
-function openAdminUpload() {
-  document.getElementById('adminUploadModal').classList.remove('hidden');
-}
-function closeAdminUpload() {
-  document.getElementById('adminUploadModal').classList.add('hidden');
-  document.getElementById('adminUploadForm').reset();
-  document.getElementById('adminFileName').textContent = 'PDF yoki DOCX tanlang';
-}
-
-document.getElementById('adminFileInput')?.addEventListener('change', function() {
-  const nameEl = document.getElementById('adminFileName');
-  if (this.files[0]) {
-    nameEl.textContent = '📎 ' + this.files[0].name;
-    nameEl.classList.add('text-emerald-600');
-    const autoName = this.files[0].name.replace(/\.(pdf|docx)$/i, '').replace(/_/g, ' ');
-    const nameInput = document.getElementById('adminTmplName');
-    if (!nameInput.value) nameInput.value = autoName;
-  }
-});
-
-document.getElementById('adminUploadForm')?.addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const btn = document.getElementById('adminUploadBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Yuklanmoqda...';
-
-  const formData = new FormData(this);
-  if (!formData.get('color')) formData.set('color', 'false');
-
-  const apiUrl = AppConfig.getApiUrl();
-  try {
-    const res = await fetch(`${apiUrl}/api/admin/templates/upload`, {
-      method: 'POST',
-      headers: { "ngrok-skip-browser-warning": "true" },
-      body: formData
-    });
-    const data = await res.json();
-    if (data.success) {
-      closeAdminUpload();
-      allTemplates = [];
-      loadTemplates();
-      Swal.fire({ icon: 'success', title: data.message, timer: 2500, showConfirmButton: false });
-    } else {
-      Swal.fire({ icon: 'error', title: 'Xatolik', text: data.message, confirmButtonColor: '#e11d48' });
-    }
-  } catch (err) {
-    Swal.fire({ icon: 'error', title: 'Aloqa xatosi', text: 'Server bilan bog\'lanishda xatolik' });
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-upload mr-1"></i>Yuklash';
-  }
-});
-
-async function printTemplate(tmpl) {
-  if (!tmpl.file_exists) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Fayl topilmadi',
-      text: `"${tmpl.file}" fayli serverda topilmadi.`,
-      confirmButtonColor: '#e11d48'
-    });
-    return;
-  }
-  closeTemplateModal();
-  Swal.fire({ title: 'Chop etilmoqda...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
-  const apiUrl = AppConfig.getApiUrl();
-  try {
-    const res = await fetch(`${apiUrl}/api/templates/print`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        "ngrok-skip-browser-warning": "true"
-      },
-      body: JSON.stringify({ template_id: tmpl.id, copies: 1, payment_method: 'card', amount: tmpl.price_per_page })
-    });
-    const data = await res.json();
-    Swal.fire({
-      icon: data.success ? 'success' : 'error',
-      title: data.success ? 'Chop etildi!' : 'Xatolik',
-      text: data.message,
-      confirmButtonColor: data.success ? '#2563eb' : '#e11d48'
-    });
-  } catch (e) {
-    Swal.fire({ icon: 'error', title: 'Xatolik', text: 'Server bilan bog\'lanishda xatolik', confirmButtonColor: '#e11d48' });
-  }
-}
-
-// ----------------- AI WRITER (CLIENT-SIDE & SERVER FALLBACK) -----------------
-let currentDocId = null;
-let currentGeneratedText = "";
-
-const DOC_TYPE_BASE_PRICES = {
-  ariza: 3000,
-  dalolatnoma: 4000,
-  mustaqil: 5000,
-  qayta: 3000,
-  xat: 3000
-};
-
-function buildClientPrompt(docType, recipient, content, author, org) {
-  const today = new Date().toLocaleDateString('ru-RU');
-  const base = `Siz O'zbekiston rasmiy hujjatlarini yozishda mutaxassis assistantsiz.
-Quyidagi ma'lumotlar asosida rasmiy hujjat yozing (O'zbekiston standartlariga mos, rasmiy uslubda).
-MUHIM: Faqat hujjat matnini qaytaring, ortiqcha salomlashish yoki tushuntirish YOZMA. O'zbek tilida yozing. Sana: ${today}.
-
-`;
-  if (docType === 'ariza') {
-    return base + `ARIZA:
-Kimga: ${recipient}
-Kim tomonidan: ${author}
-Muassasa: ${org || '[muassasa nomi]'}
-Mazmun: ${content}
-
-Tuzilishi:
-1. Yuqori o'ng burchak: Kimga (lavozim, F.I.O.) va Kimdan
-2. Markazda: "ARIZA"
-3. Asosiy iltimos / ariza matni
-4. Sana va imzo joyi`;
-  } else if (docType === 'dalolatnoma') {
-    return base + `DALOLATNOMA:
-Tashkilot: ${org || '[tashkilot nomi]'}
-Ishtirokchilar: ${recipient}
-Voqea/Holat: ${content}
-Komissiya a'zolari, aniqlangan faktlar, xulosa va imzolar bilan to'liq dalolatnoma yozing.`;
-  } else if (docType === 'mustaqil') {
-    return base + `MUSTAQIL ISH:
-Mavzu: ${content}
-Talaba: ${author}
-Fan: ${recipient}
-Muassasa: ${org || '[universitet nomi]'}
-Kirish, asosiy qismlar, xulosa va adabiyotlar bilan ilmiy uslubda mustaqil ish yozing.`;
-  } else if (docType === 'qayta') {
-    return base + `QAYTA O'ZLASHTIRISH ARIZASI:
-Kimga: ${recipient}
-Talaba: ${author}
-Muassasa: ${org || '[universitet nomi]'}
-Sabab: ${content}
-Qayta o'zlashtirish imtihoniga ruxsat so'rab to'liq ariza yozing.`;
-  } else {
-    return base + `RASMIY XAT:
-Kimga: ${recipient}
-Kimdan: ${author} (${org || '[muassasa]'})
-Mavzu: ${content}
-To'liq rasmiy xat yozing.`;
-  }
-}
-
-async function callGeminiDirectClient(prompt, imageFile) {
-  const apiKey = (AppConfig.getGeminiApiKey ? AppConfig.getGeminiApiKey() : "") || atob("QVEuQWI4Uk42TFNiWGt4X2JMV1Z6S2tRbk5HTnBGaTN1OTBYY2FpWFhScV83S2xfaHlKc2c=");
-  const parts = [];
-
-  if (imageFile && imageFile.size) {
-    const base64Data = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result.split(',')[1]);
-      reader.readAsDataURL(imageFile);
-    });
-    parts.push({
-      inlineData: {
-        mimeType: imageFile.type || "image/jpeg",
-        data: base64Data
-      }
-    });
-  }
-
-  parts.push({ text: prompt });
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 2048
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errData = await response.json().catch(() => ({}));
-    throw new Error(errData.error?.message || `Gemini API xatosi (${response.status})`);
-  }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini javob bermadi");
-  return text.trim();
-}
-
-function createWordDownload(text, docType) {
-  const htmlContent = `
-    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-    <head><meta charset='utf-8'><title>${docType}</title>
-    <style>
-      body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; margin: 2.5cm; }
-      p { margin: 0 0 6pt 0; text-align: justify; }
-      .center { text-align: center; font-weight: bold; }
-      .right { text-align: right; }
-    </style>
-    </head>
-    <body>
-      ${text.split('\n').map(line => {
-        const trimmed = line.trim();
-        if (!trimmed) return '<p>&nbsp;</p>';
-        if (trimmed.toUpperCase() === trimmed && trimmed.length < 40) return `<p class="center">${trimmed}</p>`;
-        return `<p>${trimmed}</p>`;
-      }).join('')}
-    </body>
-    </html>
-  `;
-  const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
-  return URL.createObjectURL(blob);
-}
-
-document.getElementById('aiImageInput')?.addEventListener('change', function() {
-  const nameEl = document.getElementById('aiImageName');
-  if (this.files[0]) {
-    nameEl.textContent = '📎 ' + this.files[0].name;
-    nameEl.classList.remove('hidden');
-  } else {
-    nameEl.classList.add('hidden');
-  }
-});
-
-document.getElementById('aiForm')?.addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const btn = document.getElementById('aiWriteBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> AI yozmoqda...';
-
-  const formData = new FormData(this);
-  const docType = formData.get('doc_type') || 'ariza';
-  const recipient = formData.get('recipient') || '';
-  const authorName = formData.get('author_name') || '';
-  const org = formData.get('organization') || '';
-  const content = formData.get('content') || '';
-  const imageFile = formData.get('image');
-
-  if (!content && (!imageFile || !imageFile.size)) {
-    Swal.fire({ icon: 'warning', title: 'Mazmun kerak', text: 'Hujjat mazmunini yozing yoki rasm yuklang.', confirmButtonColor: '#7c3aed' });
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
-    return;
-  }
-
-  let generatedText = "";
-  let wordCount = 0;
-  let isClientGenerated = false;
-
-  // 1-qadam: Avval Raspberry Pi serveriga urinib ko'rish
-  const apiUrl = AppConfig.getApiUrl();
-  let serverWorked = false;
-
-  if (apiUrl) {
+  function speak(text) {
     try {
-      const res = await fetch(`${apiUrl}/api/ai/write`, {
-        method: 'POST',
-        headers: { "ngrok-skip-browser-warning": "true" },
-        body: formData
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          generatedText = data.text;
-          wordCount = data.word_count;
-          currentDocId = data.doc_id;
-          serverWorked = true;
-          document.getElementById('aiDownloadBtn').href = `${apiUrl}${data.download_url}`;
-        }
+      if (!('speechSynthesis' in window)) return;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'uz-UZ';
+      u.rate = 0.95;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    } catch (e) { /* ovoz ixtiyoriy */ }
+  }
+
+  async function getJSON(path, opts = {}) {
+    const res = await fetch(api(path), { ...opts, headers: { ...HDR, ...(opts.headers || {}) } });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* bo'sh javob */ }
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  // Server bilan bir xil: "1-3, 5" → nechta bet
+  function countSelected(text, total) {
+    total = Math.max(1, total || 1);
+    if (!text || /^(all|barchasi|hammasi)$/i.test(text.trim())) return total;
+    let n = 0;
+    for (let part of text.replace(/–/g, '-').split(',')) {
+      part = part.trim();
+      if (!part) continue;
+      const m = part.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (m) {
+        const a = Math.max(1, +m[1]), b = Math.min(total, +m[2]);
+        if (b >= a) n += b - a + 1;
+      } else if (/^\d+$/.test(part)) {
+        const p = +part;
+        if (p >= 1 && p <= total) n += 1;
       }
-    } catch (e) {
-      console.log("Server oflayn, to'g'ridan-to'g'ri brauzer orqali AI ishga tushirilmoqda...");
     }
+    return n > 0 ? n : 0;
   }
 
-  // 2-qadam: Agar server oflayn bo'lsa — to'g'ridan-to'g'ri brauzer orqali Gemini chaqirish!
-  if (!serverWorked) {
-    try {
-      const prompt = buildClientPrompt(docType, recipient, content, authorName, org);
-      generatedText = await callGeminiDirectClient(prompt, imageFile);
-      wordCount = generatedText.split(/\s+/).filter(Boolean).length;
-      isClientGenerated = true;
-      currentDocId = "client_" + Date.now();
-
-      // Word yuklab olish havolasi yaratish
-      const blobUrl = createWordDownload(generatedText, docType);
-      const downloadBtn = document.getElementById('aiDownloadBtn');
-      downloadBtn.href = blobUrl;
-      downloadBtn.setAttribute('download', `${docType}_hujjati.doc`);
-    } catch (err) {
-      Swal.fire({
-        icon: 'error',
-        title: 'AI Xatosi',
-        text: err.message || 'Gemini API bilan bog\'lanishda xatolik yuz berdi.',
-        confirmButtonColor: '#7c3aed'
-      });
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
-      return;
-    }
+  function normRange(text) {
+    return text.replace(/–/g, '-').replace(/\s+/g, '').replace(/,+/g, ',').replace(/^,|,$/g, '');
   }
 
-  currentGeneratedText = generatedText;
-
-  // Natijani ko'rsatish
-  document.getElementById('aiResult').classList.remove('hidden');
-  document.getElementById('aiTextPreview').textContent = generatedText;
-  document.getElementById('aiWordCount').textContent = `${wordCount} so'z`;
-
-  // Narx hisoblash
-  const basePrice = DOC_TYPE_BASE_PRICES[docType] || 3000;
-  const extraWords = Math.max(0, wordCount - 100);
-  const extraPrice = Math.floor(extraWords / 100) * 500;
-  const aiFee = basePrice + extraPrice;
-  const printFee = 500;
-  const totalFee = aiFee + printFee;
-
-  const priceBox = document.getElementById('aiPriceBox');
-  priceBox.classList.remove('hidden');
-  document.getElementById('aiWriteFee').textContent = aiFee.toLocaleString() + " so'm";
-  document.getElementById('aiPrintFee').textContent = printFee.toLocaleString() + " so'm";
-  document.getElementById('aiTotalFee').textContent = totalFee.toLocaleString() + " so'm";
-
-  document.getElementById('aiResult').scrollIntoView({ behavior: 'smooth' });
-
-  btn.disabled = false;
-  btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Hujjat Yozsin';
-});
-
-document.getElementById('aiPrintBtn')?.addEventListener('click', async function() {
-  if (!currentGeneratedText) return;
-  const apiUrl = AppConfig.getApiUrl();
-
-  if (!apiUrl) {
-    Swal.fire({
-      icon: 'info',
-      title: 'Hujjat tayyor!',
-      text: 'Hujjatni "Word yuklab ol" tugmasi orqali saqlab olishingiz mumkin. Chop etish uchun printer ulangan bo\'lishi kerak.',
-      confirmButtonColor: '#2563eb'
-    });
-    return;
+  function selectedPages() {
+    if (!S.file) return 0;
+    if (S.rangeMode === 'custom') return countSelected(S.rangeText, S.pages);
+    return S.pages;
   }
 
-  this.disabled = true;
-  this.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+  function unitPrice() { return S.color === 'color' ? S.priceColor : S.priceBw; }
 
-  try {
-    const totalFeeText = document.getElementById('aiTotalFee').textContent;
-    const amount = totalFeeText.replace(/[^0-9]/g, '');
-    const res = await fetch(`${apiUrl}/api/ai/print/${currentDocId}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        "ngrok-skip-browser-warning": "true"
-      },
-      body: JSON.stringify({ color_mode: 'gray', copies: 1, amount })
-    });
-    const data = await res.json();
-    Swal.fire({
-      icon: data.success ? 'success' : 'error',
-      title: data.success ? 'Chop etildi!' : 'Xatolik',
-      text: data.message,
-      confirmButtonColor: data.success ? '#2563eb' : '#e11d48'
-    });
-  } catch (e) {
-    Swal.fire({
-      icon: 'info',
-      title: 'Hujjat tayyor!',
-      text: 'Hujjat yaratildi! "Word yuklab ol" tugmasi orqali Word faylini yuklab oling.',
-      confirmButtonColor: '#2563eb'
-    });
-  } finally {
-    this.disabled = false;
-    this.innerHTML = '<i class="fa-solid fa-print text-xs"></i> Chop Et';
-  }
-});
-
-// ----------------- TO'LOV MODALI (PAYMENT MODAL) -----------------
-const paymentModal = document.getElementById('paymentModal');
-const paymentModalCard = document.getElementById('paymentModalCard');
-const closePaymentModalBtn = document.getElementById('closePaymentModalBtn');
-const cancelPaymentBtn = document.getElementById('cancelPaymentBtn');
-const confirmPaymentBtn = document.getElementById('confirmPaymentBtn');
-
-const modalCardNumber = document.getElementById('modalCardNumber');
-const modalCardHolder = document.getElementById('modalCardHolder');
-const cardBankTxt = document.getElementById('cardBankTxt');
-const copyCardBtn = document.getElementById('copyCardBtn');
-const copyCardTxt = document.getElementById('copyCardTxt');
-
-const clickPayLink = document.getElementById('clickPayLink');
-const paymePayLink = document.getElementById('paymePayLink');
-
-let currentSelectedPayTab = 'card';
-
-// To'lov tablarini almashtirish
-document.querySelectorAll('.pay-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tabName = btn.getAttribute('data-tab');
-    currentSelectedPayTab = tabName;
-
-    document.querySelectorAll('.pay-tab-btn').forEach(b => {
-      b.classList.remove('bg-white', 'text-blue-700', 'shadow-sm', 'font-bold');
-      b.classList.add('text-slate-600', 'font-medium');
-    });
-    btn.classList.add('bg-white', 'text-blue-700', 'shadow-sm', 'font-bold');
-    btn.classList.remove('text-slate-600', 'font-medium');
-
-    document.querySelectorAll('.pay-tab-content').forEach(c => c.classList.add('hidden'));
-    const targetContent = document.getElementById(`tabContent${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
-    if (targetContent) targetContent.classList.remove('hidden');
-  });
-});
-
-// Nusxa olish
-if (copyCardBtn) {
-  copyCardBtn.addEventListener('click', () => {
-    const num = modalCardNumber.textContent.replace(/\s+/g, '');
-    navigator.clipboard.writeText(num).then(() => {
-      copyCardTxt.textContent = 'Nusxalandi!';
-      copyCardBtn.classList.add('bg-emerald-600');
-      setTimeout(() => {
-        copyCardTxt.textContent = 'Nusxa';
-        copyCardBtn.classList.remove('bg-emerald-600');
-      }, 2000);
-    });
-  });
-}
-
-let currentPollingInterval = null;
-let currentPendingOrderId = null;
-
-async function openPaymentModal() {
-  const payCfg = AppConfig.getPaymentConfig();
-  const totalPrice = parseInt(totalPriceTxt.textContent.replace(/\s+/g, '')) || 500;
-  const copies = parseInt(copiesVal.value) || 1;
-  const apiUrl = AppConfig.getApiUrl();
-
-  document.getElementById('modalAmountTxt').textContent = totalPrice.toLocaleString();
-  document.getElementById('modalOrderSummary').textContent = `${detectedPages} sahifa • ${copies} nusxa`;
-
-  // QR-kod konteynerini tayyorlash
-  const qrContainer = document.getElementById('dynamicPayQrCode');
-  qrContainer.innerHTML = '';
-
-  const cleanCard = (payCfg.cardNumber || '').replace(/\s+/g, '');
-  if (cleanCard.length === 16) {
-    modalCardNumber.textContent = cleanCard.replace(/(\d{4})/g, '$1 ').trim();
-  } else {
-    modalCardNumber.textContent = payCfg.cardNumber || 'Karta kiritilmagan';
-  }
-
-  modalCardHolder.textContent = payCfg.cardHolder || 'PRINT MARKAZ';
-  cardBankTxt.textContent = payCfg.cardBank || 'UZCARD / HUMO';
-
-  // 1. QR-kod generatsiyasi (O'zbekiston standart Click P2P formati)
-  // Click ilovasi ichki skaneri faqat to'g'ridan-to'g'ri karta yoki click-p2p protokollarini taniydi
-  let clickAppUrl = "";
-  if (cleanCard) {
-    clickAppUrl = `click://p2p?card=${cleanCard}&amount=${totalPrice}`;
-  } else {
-    clickAppUrl = `https://my.click.uz`;
-  }
-  // Standart veb o'tish havolasi (brauzerlar va kamera uchun)
-  const clickWebUrl = cleanCard 
-    ? `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`
-    : `https://my.click.uz`;
-
-  // Oddiy telefon kamerasi yoki Click skaneri taniy oladigan toza karta raqami yoki click havolasi
-  // Click skaneri "5614688700590424" karta raqamining o'zini bir zumda taniy oladi!
-  const qrRawData = cleanCard ? cleanCard : clickWebUrl;
-  const encodedPayload = encodeURIComponent(qrRawData);
-
-  qrContainer.innerHTML = `
-    <a href="${clickWebUrl}" target="_blank" title="Click ilovasida to'lash uchun bosing" class="block cursor-pointer">
-      <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodedPayload}&margin=6" 
-           alt="To'lov QR kodi" 
-           class="w-44 h-44 rounded-xl shadow-sm border border-slate-200 transition-all hover:scale-105 duration-200 mx-auto" 
-           loading="eager" />
-    </a>
-  `;
-
-  // QR-kod ostiga tezkor to'lash tugmasi va karta ma'lumotlarini ham joylaymiz
-  const quickPayBlock = document.getElementById('qrQuickLinksBlock');
-  if (quickPayBlock) {
-    quickPayBlock.innerHTML = `
-      <div class="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
-        <a href="${clickWebUrl}" target="_blank" class="w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-1.5">
-          <i class="fa-solid fa-arrow-up-right-from-square"></i>
-          <span>Click Ilovasida To‘lash (${totalPrice.toLocaleString()} so‘m)</span>
-        </a>
-        <div class="text-[11px] text-slate-500 bg-slate-50 py-1.5 px-2.5 rounded-lg border border-slate-100 flex items-center justify-between">
-          <span>Karta: <b class="font-mono text-slate-800">${cleanCard.replace(/(\d{4})/g, '$1 ').trim()}</b></span>
-          <span class="text-blue-600 font-semibold">${payCfg.cardHolder || 'Ravshanov Asilbek'}</span>
-        </div>
-      </div>
-    `;
-  }
-
-  // 2. Yangi Pending Order yaratish (Backend onlayn bo'lsa yangilaydi)
-  const orderFormData = new FormData(printForm);
-  orderFormData.append('amount', totalPrice);
-  orderFormData.append('copies', copies);
-
-  try {
-    const createRes = await fetch(`${apiUrl}/api/order/create`, {
-      method: 'POST',
-      headers: { "ngrok-skip-browser-warning": "true" },
-      body: orderFormData
-    });
-    const orderData = await createRes.json();
-    if (orderData.success) {
-      currentPendingOrderId = orderData.order_id;
-      document.getElementById('qrOrderCodeTxt').textContent = `#${currentPendingOrderId}`;
-
-      // Dinamik QR kodni unikal Order bilan qayta chizamiz
-      let dynamicPayload = "";
-      if (payCfg.clickMerchantId && payCfg.clickServiceId) {
-        dynamicPayload = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}&transaction_param=${currentPendingOrderId}`;
-      } else if (cleanCard) {
-        dynamicPayload = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
+  // ── Chat ────────────────────────────────────────────────
+  function renderChat() {
+    const box = $('chat');
+    let html = '';
+    if (!S.file) {
+      html += `<div class="bubble bot"><span>Salom! Chop etmoqchi bo‘lgan faylni yuboring yoki tayyor shablonni tanlang.</span>${S.botLead ? `<strong>${esc(S.botLead)}</strong>` : ''}</div>`;
+    } else {
+      const ext = (S.fileExt || 'fayl').slice(0, 4);
+      const sub = S.counting ? 'sahifalar sanalmoqda…' : `${S.pages} bet · ${fmtSize(S.file.size)}`;
+      html += `<div class="file-bubble"><span class="file-badge">${esc(ext)}</span><span class="file-meta"><p class="file-name">${esc(S.file.name)}</p><p class="file-sub">${esc(sub)}</p></span></div>`;
+      if (S.userMsg) html += `<p class="bubble user">${esc(S.userMsg)}</p>`;
+      if (S.counting) {
+        html += `<div class="bubble bot" aria-label="Yordamchi yozmoqda"><span class="typing"><span></span><span></span><span></span></span></div>`;
       } else {
-        dynamicPayload = `SMART_PRINT_ORDER:${currentPendingOrderId}:AMOUNT:${totalPrice}`;
+        html += `<div class="bubble bot"><span>${esc(S.botLead || `${S.pages} bet topdim. Shunday chop etamizmi?`)}</span><strong>${esc(summaryLine())}</strong></div>`;
       }
-
-      const encDyn = encodeURIComponent(dynamicPayload);
-      qrContainer.innerHTML = `
-        <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encDyn}&margin=6" 
-             alt="To'lov QR kodi" 
-             class="w-44 h-44 rounded-xl shadow-sm border border-slate-200 transition-all hover:scale-105 duration-200" 
-             loading="eager" />
-      `;
-
-      // Avtomatik Webhook tekshiruvini boshlash (Polling)
-      startPaymentStatusPolling(currentPendingOrderId);
     }
-  } catch(err) {
-    console.warn("Order create xatosi:", err);
+    box.innerHTML = html;
   }
 
-  // Click & Payme havolalarini yangilash
-  if (payCfg.clickMerchantId && payCfg.clickServiceId) {
-    clickPayLink.href = `https://my.click.uz/services/pay?service_id=${payCfg.clickServiceId}&merchant_id=${payCfg.clickMerchantId}&amount=${totalPrice}&transaction_param=${currentPendingOrderId || ''}`;
-  } else if (payCfg.clickPhone) {
-    const cleanPhone = payCfg.clickPhone.replace(/[^0-9]/g, '');
-    clickPayLink.href = `https://my.click.uz/pay/transfer?phone=${cleanPhone}&amount=${totalPrice}`;
-  } else if (cleanCard) {
-    clickPayLink.href = `https://my.click.uz/pay/transfer?card=${cleanCard}&amount=${totalPrice}`;
-  } else {
-    clickPayLink.href = `https://my.click.uz`;
+  function summaryLine() {
+    const sel = selectedPages();
+    if (S.rangeMode === 'custom' && !sel) return 'Betlar oralig‘ini to‘g‘ri kiriting';
+    const range = S.rangeMode === 'all' ? `barcha ${S.pages} bet` : `${normRange(S.rangeText).replace(/-/g, '–')} (${sel} bet)`;
+    const orient = S.orientation === 'landscape' ? 'albom' : 'kitob';
+    const color = S.color === 'color' ? 'rangli' : 'oq-qora';
+    return `${range} · ${orient} · ${color} · ${S.copies} nusxa = ${money(sel * S.copies * unitPrice())}`;
   }
 
-  if (payCfg.paymeMerchantId) {
-    const base64Order = btoa(`m=${payCfg.paymeMerchantId};a=${totalPrice * 100};ac.order_id=${currentPendingOrderId || ''}`);
-    paymePayLink.href = `https://checkout.paycom.uz/${base64Order}`;
-  } else if (cleanCard) {
-    paymePayLink.href = `https://payme.uz/fallback/pay/?card=${cleanCard}&amount=${totalPrice * 100}`;
-  } else {
-    paymePayLink.href = `https://payme.uz`;
+  function renderChips() {
+    const chips = $('chips');
+    if (!S.file || S.counting) { chips.hidden = true; return; }
+    const list = [];
+    if (S.copies < 2) list.push(['2 nusxa', () => update({ copies: 2 }, 'Tushundim: 2 nusxa.')]);
+    else list.push(['1 nusxa', () => update({ copies: 1 }, 'Tushundim: 1 nusxa.')]);
+    if (S.pages > 3 && !(S.rangeMode === 'custom' && normRange(S.rangeText) === '1-3')) {
+      list.push(['Faqat 1–3 bet', () => update({ rangeMode: 'custom', rangeText: '1-3' }, 'Tushundim: faqat 1–3 betlar.')]);
+    }
+    list.push(S.orientation === 'portrait'
+      ? ['Albom qilib', () => update({ orientation: 'landscape' }, 'Tushundim: albom yo‘nalishi.')]
+      : ['Kitob qilib', () => update({ orientation: 'portrait' }, 'Tushundim: kitob yo‘nalishi.')]);
+    list.push(['Boshqa fayl', () => $('fileInput').click()]);
+    chips.innerHTML = '';
+    for (const [label, fn] of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      chips.appendChild(b);
+    }
+    chips.hidden = false;
   }
 
-  paymentModal.classList.remove('opacity-0', 'pointer-events-none');
-  paymentModalCard.classList.remove('scale-95');
-  paymentModalCard.classList.add('scale-100');
-}
-
-function startPaymentStatusPolling(orderId) {
-  if (currentPollingInterval) clearInterval(currentPollingInterval);
-  const apiUrl = AppConfig.getApiUrl();
-  const statusIndicator = document.getElementById('qrPaymentStatusIndicator');
-  const statusTxt = document.getElementById('qrStatusText');
-
-  currentPollingInterval = setInterval(async () => {
-    try {
-      const res = await fetch(`${apiUrl}/api/order/status/${orderId}`, {
-        headers: { "ngrok-skip-browser-warning": "true" }
-      });
-      const data = await res.json();
-      if (data.success && data.status === "PAID") {
-        clearInterval(currentPollingInterval);
-        statusIndicator.className = "flex items-center justify-center gap-2 py-1.5 px-3 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-300 max-w-xs mx-auto animate-bounce";
-        statusTxt.textContent = "✅ To‘lov qabul qilindi! Chop etilmoqda...";
-
-        setTimeout(() => {
-          closePaymentModal();
-          Swal.fire({
-            icon: 'success',
-            title: 'Muvaffaqiyatli!',
-            text: `To'lov qabul qilindi va hujjat printerga uzatildi!`,
-            timer: 3500,
-            showConfirmButton: false
-          });
-          fileInput.value = '';
-          fileInfoBox.classList.add('hidden');
-          promptContent.classList.remove('hidden');
-          detectedPages = 1;
-          updatePricing();
-        }, 1200);
-      }
-    } catch(e) {}
-  }, 2000);
-}
-
-function closePaymentModal() {
-  if (currentPollingInterval) clearInterval(currentPollingInterval);
-  paymentModal.classList.add('opacity-0', 'pointer-events-none');
-  paymentModalCard.classList.remove('scale-100');
-  paymentModalCard.classList.add('scale-95');
-}
-
-if (closePaymentModalBtn) closePaymentModalBtn.addEventListener('click', closePaymentModal);
-if (cancelPaymentBtn) cancelPaymentBtn.addEventListener('click', closePaymentModal);
-
-async function executePrintJob(paymentInfo) {
-  const apiUrl = AppConfig.getApiUrl();
-  closePaymentModal();
-
-  Swal.fire({
-    title: 'Chop etilmoqda...',
-    html: `
-      <div class="space-y-3 py-2 text-center">
-        <div class="text-xs text-slate-500" id="swalStepText">To‘lov qabul qilindi. Fayl serverga yuklanmoqda...</div>
-        <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-          <div id="swalBar" class="bg-emerald-600 h-full rounded-full transition-all duration-500" style="width: 30%"></div>
-        </div>
-      </div>
-    `,
-    allowOutsideClick: false,
-    allowEscapeKey: false,
-    showConfirmButton: false,
-    didOpen: () => { Swal.showLoading(); }
-  });
-
-  const formData = new FormData(printForm);
-  if (paymentInfo) {
-    formData.append('payment_method', paymentInfo.method || 'card');
-    formData.append('amount', paymentInfo.amount || '0');
-    formData.append('payment_status', 'PAID');
+  // ── Kartochkalar va narx ────────────────────────────────
+  function renderSettings() {
+    const has = !!S.file;
+    $('startGrid').hidden = has;
+    $('settingsGrid').hidden = !has;
+    $('copiesOut').textContent = S.copies;
+    $('copiesDec').disabled = S.copies <= 1;
+    $('copiesInc').disabled = S.copies >= MAX_COPIES;
+    document.querySelectorAll('[data-orient]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.orient === S.orientation)));
+    document.querySelectorAll('[data-range]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.range === S.rangeMode)));
+    document.querySelectorAll('[data-color]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.color === S.color)));
+    const cb = $('colorBtn');
+    cb.disabled = !S.colorReady;
+    cb.title = S.colorReady ? `Rangli — ${money(S.priceColor)}/bet` : 'Rangli printer ulanmagan';
+    $('rangeTile').hidden = S.rangeMode !== 'custom';
+    if ($('rangeInput').value !== S.rangeText) $('rangeInput').value = S.rangeText;
+    const sel = selectedPages();
+    const hint = $('rangeHint');
+    if (S.rangeMode === 'custom') {
+      hint.className = 'hint' + (sel ? '' : ' err');
+      hint.textContent = sel ? `${sel} bet tanlandi (jami ${S.pages})` : `1 dan ${S.pages} gacha bo‘lgan betlarni kiriting`;
+    }
   }
 
-  try {
-    const res = await fetch(`${apiUrl}/api/print`, {
-      method: 'POST',
-      headers: { "ngrok-skip-browser-warning": "true" },
-      body: formData
-    });
-    const result = await res.json();
+  function renderPaybar() {
+    const btn = $('payBtn');
+    if (!S.file) {
+      $('totalLabel').textContent = 'Fayl tanlanmagan';
+      $('totalText').textContent = '0 so‘m';
+      btn.disabled = true;
+      return;
+    }
+    const sel = selectedPages();
+    $('totalLabel').textContent = S.counting ? 'Hisoblanmoqda…' : `Jami · ${sel} bet × ${S.copies} nusxa`;
+    $('totalText').textContent = S.counting ? '…' : money(sel * S.copies * unitPrice());
+    btn.disabled = S.counting || !sel || !S.printerReady;
+    btn.title = S.printerReady ? '' : 'Printer hozir tayyor emas';
+  }
 
-    if (res.ok && result.success) {
-      // 1. Ovozli xabar aytish (O'zbek tilida brauzer orqali)
-      try {
-        if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance("To‘lov qabul qilindi. Hujjatingiz printerdan chiqdi. Qog‘ozingizni oling!");
-          utterance.lang = "uz-UZ";
-          utterance.rate = 0.95;
-          window.speechSynthesis.speak(utterance);
-        }
-      } catch (voiceErr) {
-        console.warn("Ovozli xabar xatosi:", voiceErr);
-      }
+  function renderStatus() {
+    const el = $('printerStatus');
+    const txt = $('printerStatusText');
+    if (S.online === null) { el.className = 'status'; txt.textContent = 'Printer tekshirilmoqda…'; return; }
+    if (!S.online) { el.className = 'status err'; txt.textContent = 'Server bilan aloqa yo‘q'; return; }
+    const main = S.printers.find((p) => p.type === 'laser_bw') || S.printers.find((p) => p.connected) || null;
+    if (S.printerReady) { el.className = 'status ok'; txt.textContent = 'Printer tayyor · navbat yo‘q'; }
+    else if (main && main.connected) { el.className = 'status warn'; txt.textContent = main.status_reason || 'Printer band'; }
+    else { el.className = 'status err'; txt.textContent = 'Printer ulanmagan'; }
+  }
 
-      // 2. Chiroyli katta muvaffaqiyat oynasi
-      Swal.fire({
-        icon: 'success',
-        title: 'Hujjat Chiqdi! 🎉',
-        html: `
-          <div class="text-sm text-slate-700 space-y-3 py-1">
-            <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 font-bold flex items-center justify-center gap-2">
-              <i class="fa-solid fa-circle-check text-emerald-600 text-lg"></i>
-              <span>To‘lov tasdiqlandi va hujjat printerdan to‘liq chiqdi!</span>
-            </div>
-            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 text-left space-y-1.5 font-medium">
-              <div><strong>Printer:</strong> <span class="text-slate-900">${result.printer} (A4 Lazer)</span></div>
-              <div><strong>Nusxalar:</strong> <span class="text-slate-900">${result.copies} ta</span></div>
-              <div><strong>Holati:</strong> <span class="text-emerald-600 font-bold">Muvaffaqiyatli yakunlandi</span></div>
-            </div>
-            <p class="text-xs text-slate-400">Iltimos, chiqarilgan qog‘ozni printer patnisidan oling.</p>
-          </div>
-        `,
-        confirmButtonText: 'Tushunarli, oldim!',
-        confirmButtonColor: '#16a34a'
-      });
-      printForm.reset();
-      fileInfoBox.classList.add('hidden');
-      promptContent.classList.remove('hidden');
-      detectedPages = 1;
-      updatePricing();
+  function render() {
+    $('viewPrint').hidden = S.view !== 'print';
+    $('viewTemplates').hidden = S.view !== 'templates';
+    $('navBtn').textContent = S.view === 'print' ? 'Shablonlar →' : '← Chop etish';
+    renderStatus();
+    renderChat();
+    renderChips();
+    renderSettings();
+    renderPaybar();
+  }
+
+  function update(patch, lead) {
+    Object.assign(S, patch);
+    if (S.copies < 1) S.copies = 1;
+    if (S.copies > MAX_COPIES) S.copies = MAX_COPIES;
+    if (lead !== undefined) S.botLead = lead;
+    render();
+  }
+
+  // ── Yozma buyruqlarni tushunish ─────────────────────────
+  // "3 nusxa", "5-8 bet", "1,3,5", "albom", "kitob", "rangli", "oq-qora", "hammasi", "to'lash"
+  function parseCommand(raw) {
+    const t = raw.toLowerCase().replace(/[‘’ʻʼ`']/g, '\'').replace(/–|—/g, '-');
+    const patch = {};
+    const done = [];
+    const cp = t.match(/(\d+)\s*(ta\s*)?(nusxa|dona|marta|x\b)/);
+    if (cp) {
+      patch.copies = Math.max(1, Math.min(MAX_COPIES, parseInt(cp[1], 10)));
+      done.push(`${patch.copies} nusxa`);
+    }
+    const tNoCopies = cp ? t.replace(cp[0], ' ') : t;
+    const rg = tNoCopies.match(/\d+\s*-\s*\d+(\s*,\s*\d+(\s*-\s*\d+)?)*|\d+(\s*,\s*\d+)+/);
+    const single = tNoCopies.match(/(\d+)\s*-?\s*(bet|sahifa|varaq)/);
+    if (rg) {
+      patch.rangeMode = 'custom';
+      patch.rangeText = normRange(rg[0]);
+      done.push(`${patch.rangeText.replace(/-/g, '–')} betlar`);
+    } else if (single) {
+      patch.rangeMode = 'custom';
+      patch.rangeText = single[1];
+      done.push(`${single[1]}-bet`);
+    } else if (/hammas|barcha|to'liq/.test(t)) {
+      patch.rangeMode = 'all';
+      patch.rangeText = '';
+      done.push('barcha betlar');
+    }
+    if (/albom|yotiq|landscape/.test(t)) { patch.orientation = 'landscape'; done.push('albom'); }
+    else if (/kitob|tik\b|portrait/.test(t)) { patch.orientation = 'portrait'; done.push('kitob'); }
+    if (/oq-?qora|qora-?oq|\bbw\b/.test(t)) { patch.color = 'gray'; done.push('oq-qora'); }
+    else if (/rangli/.test(t)) {
+      if (S.colorReady) { patch.color = 'color'; done.push('rangli'); }
+      else done.push('rangli printer hozir ulanmagan, oq-qora qoldi');
+    }
+    const wantsPay = /to'la|tola|chop et|bosib|tayyor|\bha\b/.test(t);
+    return { patch, done, wantsPay };
+  }
+
+  function onCommand(text) {
+    text = text.trim();
+    if (!text) return;
+    if (!S.file) {
+      update({ userMsg: '' }, 'Avval faylni yuboring — pastdagi qisqich tugmasi yoki «Faylni tanlang».');
+      toast('Avval faylni tanlang');
+      return;
+    }
+    const { patch, done, wantsPay } = parseCommand(text);
+    S.userMsg = text;
+    if (done.length) {
+      update(patch, `Tushundim: ${done.join(', ')}. Yangi hisob:`);
+    } else if (wantsPay) {
+      update({}, 'Yaxshi, to‘lov oynasini ochyapman.');
     } else {
-      Swal.fire({ icon: 'error', title: 'Xatolik!', text: result.message, confirmButtonColor: '#e11d48' });
+      update({}, 'Kechirasiz, tushunmadim. «2 nusxa», «5–8 bet», «albom» yoki «to‘lash» deb yozing.');
     }
-  } catch (err) {
-    Swal.fire({ icon: 'error', title: 'Aloqa uzildi!', text: 'Raspberry Pi bilan bog\'lanib bo\'lmadi.', confirmButtonColor: '#e11d48' });
+    if (wantsPay && !$('payBtn').disabled) openPay({ kind: 'file' });
   }
-}
 
-if (confirmPaymentBtn) {
-  confirmPaymentBtn.addEventListener('click', () => {
-    const totalPrice = parseInt(totalPriceTxt.textContent.replace(/\s+/g, '')) || 500;
-    executePrintJob({
-      method: currentSelectedPayTab,
-      amount: totalPrice,
-      status: 'PAID'
-    });
-  });
-}
-
-if (printForm) {
-  printForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!fileInput.files.length) {
-      Swal.fire({ icon: 'warning', title: 'Fayl tanlanmadi!', text: 'Chop etilishi kerak bo\'lgan faylni yuklang.', confirmButtonColor: '#2563eb' });
-      return;
-    }
-    const apiUrl = AppConfig.getApiUrl();
-    if (!apiUrl) {
-      Swal.fire({ icon: 'error', title: 'Server ulanmagan!', text: 'Sozlamalar (⚙️) orqali API manzilini kiriting.', confirmButtonColor: '#2563eb' }).then(openSettingsModal);
-      return;
-    }
-
-    // Chop etish va to'lovdan oldin printerlar holatini va qog'oz zaxirasini tekshirish
+  // ── Fayl ────────────────────────────────────────────────
+  async function onFile(file) {
+    if (!file) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!EXTS.includes(ext)) { toast('Bu format qabul qilinmaydi. PDF, DOCX, JPG yoki PNG yuboring.', 'err'); return; }
+    if (file.size > MAX_BYTES) { toast('Fayl 64 MB dan katta.', 'err'); return; }
+    S.view = 'print';
+    update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
     try {
-      const pRes = await fetch(`${apiUrl}/api/printers`, {
-        headers: { "ngrok-skip-browser-warning": "true" }
-      });
-      const pData = await pRes.json();
-      if (pData && pData.printers) {
-        const colorMode = document.querySelector('input[name="color_mode"]:checked')?.value || 'gray';
-        const targetType = colorMode === 'color' ? 'color' : 'laser_bw';
-        let targetPrinter = pData.printers.find(p => p.type === targetType);
-        
-        // Agar lazer bo'lmasa, zaxiradagi termal printer
-        if ((!targetPrinter || !targetPrinter.connected) && colorMode === 'gray') {
-          targetPrinter = pData.printers.find(p => p.type === 'thermal');
-        }
-
-        if (targetPrinter && targetPrinter.connected && targetPrinter.ready === false) {
-          Swal.fire({
-            icon: 'warning',
-            title: 'Printer tayyor emas!',
-            html: `Tanlangan printerda muammo mavjud:<br><b class="text-rose-600 font-bold">${targetPrinter.status_reason || "Qog'oz tugagan yoki nosozlik"}</b>.<br><br>Iltimos, qog'oz qo'shing yoki boshqa rejimni tanlang. To'lov qabul qilinmadi.`,
-            confirmButtonColor: '#e11d48'
-          });
-          return;
-        }
-      }
-    } catch(err) {
-      console.warn("Pre-check ogohlantirish:", err);
+      const fd = new FormData();
+      fd.append('file', file);
+      const { ok, data } = await getJSON('/api/inspect-file', { method: 'POST', body: fd });
+      if (!ok || !data.success) throw new Error(data.error || 'Faylni o‘qib bo‘lmadi');
+      update({ pages: Math.max(1, data.page_count || 1), counting: false }, '');
+      speak(`${S.pages} bet topildi.`);
+    } catch (e) {
+      update({ pages: 1, counting: false }, 'Sahifalarni sanab bo‘lmadi — narx to‘lov oynasida aniq hisoblanadi.');
+      if (!S.online) toast('Server bilan aloqa yo‘q. Internetni tekshiring.', 'err');
     }
+  }
 
-    openPaymentModal();
-  });
-}
+  // ── Printer holati ──────────────────────────────────────
+  async function refreshPrinters() {
+    try {
+      const { ok, data } = await getJSON('/api/printers');
+      if (!ok) throw new Error();
+      S.online = true;
+      S.printers = data.printers || [];
+      const bw = S.printers.find((p) => p.type === 'laser_bw');
+      const any = bw || S.printers.find((p) => p.connected && p.ready);
+      S.printerReady = !!(any && any.connected && any.ready);
+      const col = S.printers.find((p) => p.type === 'color');
+      S.colorReady = !!(col && col.connected && col.ready);
+      if (!S.colorReady && S.color === 'color') S.color = 'gray';
+    } catch (e) {
+      S.online = false;
+      S.printerReady = false;
+    }
+    renderStatus();
+    renderSettings();
+    renderPaybar();
+  }
 
-// Dastlabki yuklash
-updatePricing();
-checkBackendHealth();
+  async function loadHealth() {
+    try {
+      const { ok, data } = await getJSON('/api/health');
+      if (ok) {
+        S.priceBw = data.price_bw || S.priceBw;
+        S.priceColor = data.price_color || S.priceColor;
+      }
+    } catch (e) { /* ixtiyoriy */ }
+  }
+
+  // ── Shablonlar ──────────────────────────────────────────
+  async function loadTemplates() {
+    try {
+      const { ok, data } = await getJSON('/api/templates');
+      S.templates = ok ? (data.templates || []).filter((t) => t.file_exists !== false) : [];
+    } catch (e) { S.templates = []; }
+    renderTemplates();
+    renderQuickTemplates();
+    if (!$('adminOverlay').hidden) renderAdminList();
+  }
+
+  const docIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+
+  function tplPrice(t) { return (t.price_per_page || S.priceBw) * (t.pages || 1); }
+
+  function renderTemplates() {
+    const grid = $('tplGrid');
+    const q = ($('tplSearch').value || '').toLowerCase().trim();
+    const list = S.templates.filter((t) => !q || [t.name, t.description, ...(t.tags || [])].join(' ').toLowerCase().includes(q));
+    if (!list.length) {
+      grid.innerHTML = `<p class="empty">${S.templates.length ? 'Hech narsa topilmadi.' : 'Shablonlar yuklanmadi. Server bilan aloqani tekshiring.'}</p>`;
+      return;
+    }
+    grid.innerHTML = list.map((t) => `
+      <button class="tpl" type="button" data-tpl="${esc(t.id)}">
+        <span class="ico" style="color:#1B1F23">${docIcon}</span>
+        <b>${esc(t.name)}</b>
+        <span class="desc">${esc(t.description || '')}</span>
+        <span class="price">${t.pages || 1} bet · ${money(tplPrice(t))}</span>
+      </button>`).join('');
+  }
+
+  function renderQuickTemplates() {
+    const box = $('quickTemplates');
+    box.innerHTML = S.templates.slice(0, 2).map((t) => `
+      <button class="tpl-mini" type="button" data-tpl="${esc(t.id)}">
+        <span class="ico" style="color:#C6F36B">${docIcon}</span>
+        <b>${esc(t.name)}</b>
+        <span>${money(tplPrice(t))}</span>
+      </button>`).join('');
+  }
+
+  function onTemplateClick(e) {
+    const btn = e.target.closest('[data-tpl]');
+    if (!btn) return;
+    const t = S.templates.find((x) => x.id === btn.dataset.tpl);
+    if (!t) return;
+    if (!S.printerReady) { toast('Printer hozir tayyor emas. Birozdan so‘ng urinib ko‘ring.', 'err'); return; }
+    openPay({ kind: 'template', template: t });
+  }
+
+  // ── To'lov ──────────────────────────────────────────────
+  function payTargets(amount, orderId) {
+    const cfg = AppConfig.getPaymentConfig();
+    const card = (cfg.cardNumber || '').replace(/\s+/g, '');
+    const cardPretty = card.replace(/(\d{4})(?=\d)/g, '$1 ');
+    const clickMerchant = cfg.clickMerchantId && cfg.clickServiceId;
+    const clickUrl = clickMerchant
+      ? `https://my.click.uz/services/pay?service_id=${cfg.clickServiceId}&merchant_id=${cfg.clickMerchantId}&amount=${amount}&transaction_param=${orderId}`
+      : (card ? `https://my.click.uz/pay/transfer?card=${card}&amount=${amount}` : 'https://my.click.uz');
+    const paymeUrl = cfg.paymeMerchantId
+      ? `https://checkout.paycom.uz/${btoa(`m=${cfg.paymeMerchantId};a=${amount * 100};ac.order_id=${orderId}`)}`
+      : (card ? `https://payme.uz/fallback/pay/?card=${card}&amount=${amount * 100}` : 'https://payme.uz');
+    const qrData = clickMerchant ? clickUrl : (card || clickUrl);
+    return { card, cardPretty, holder: cfg.cardHolder || '', bank: cfg.cardBank || '', clickUrl, paymeUrl, qrData };
+  }
+
+  function renderPayPanel() {
+    const panel = $('payPanel');
+    const o = S.order;
+    document.querySelectorAll('[data-method]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.method === S.payMethod)));
+    if (!o) { panel.innerHTML = '<span class="typing" aria-label="Kutilmoqda"><span></span><span></span><span></span></span>'; return; }
+    const p = payTargets(o.amount, o.id);
+    const cardBlock = `<p class="card-no">${esc(p.cardPretty || 'Karta kiritilmagan')}</p><p class="holder">${esc(p.holder)}${p.bank ? ' · ' + esc(p.bank) : ''}</p>`;
+    if (S.payMethod === 'qr') {
+      panel.innerHTML = `<img alt="To‘lov QR-kodi: ${esc(money(o.amount))}" src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(p.qrData)}">
+        <p class="hint">Click yoki Payme ilovasida QR-kodni skanerlang va <b>${esc(money(o.amount))}</b> o‘tkazing.</p>`;
+    } else if (S.payMethod === 'click') {
+      panel.innerHTML = `${cardBlock}<a class="pay-link" href="${esc(p.clickUrl)}" target="_blank" rel="noopener">Click’da ${esc(money(o.amount))} to‘lash</a>`;
+    } else if (S.payMethod === 'payme') {
+      panel.innerHTML = `${cardBlock}<a class="pay-link" href="${esc(p.paymeUrl)}" target="_blank" rel="noopener">Payme’da ${esc(money(o.amount))} to‘lash</a>`;
+    } else {
+      panel.innerHTML = `${cardBlock}<button class="btn-ghost" type="button" id="copyCard">Karta raqamini nusxalash</button>
+        <p class="hint">Istalgan bank ilovasidan aynan <b>${esc(money(o.amount))}</b> o‘tkazing.</p>`;
+      const cc = $('copyCard');
+      if (cc) cc.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(p.card); toast('Karta raqami nusxalandi'); }
+        catch (e) { toast(p.cardPretty); }
+      });
+    }
+  }
+
+  function setPayStatus(kind, text) {
+    const el = $('payStatus');
+    el.className = 'pay-status' + (kind ? ' ' + kind : '');
+    el.textContent = text;
+  }
+
+  async function openPay(src) {
+    if (S.order) return;
+    S.payMethod = 'qr';
+    S.lastStatus = '';
+    $('payOverlay').hidden = false;
+    $('orderCode').textContent = '#······';
+    $('payAmount').textContent = '— so‘m';
+    $('paySummary').textContent = 'Buyurtma tayyorlanmoqda…';
+    $('payClaim').disabled = true;
+    setPayStatus('', 'Buyurtma yaratilmoqda…');
+    renderPayPanel();
+    $('payCancel').focus();
+
+    const fd = new FormData();
+    if (src.kind === 'template') {
+      fd.append('source', 'template');
+      fd.append('template_id', src.template.id);
+      fd.append('copies', '1');
+    } else {
+      fd.append('source', 'file');
+      fd.append('file', S.file);
+      fd.append('copies', String(S.copies));
+      fd.append('color_mode', S.color);
+      fd.append('orientation', S.orientation);
+      fd.append('page_ranges', S.rangeMode === 'custom' ? normRange(S.rangeText) : '');
+    }
+    try {
+      const { status, data } = await getJSON('/api/order/create', { method: 'POST', body: fd });
+      if (!data.success) {
+        throw new Error(data.message || (status === 503 ? 'Printer hozir band.' : 'Buyurtma yaratilmadi.'));
+      }
+      S.order = { id: data.order_id, amount: data.amount, pages: data.pages, src };
+      $('orderCode').textContent = '#' + data.order_id;
+      $('payAmount').textContent = money(data.amount);
+      $('paySummary').textContent = src.kind === 'template'
+        ? `Shablon: ${src.template.name}`
+        : `${data.pages} bet × ${S.copies} nusxa · ${S.color === 'color' ? 'rangli' : 'oq-qora'}`;
+      $('payClaim').disabled = false;
+      setPayStatus('', 'To‘lov kutilmoqda');
+      renderPayPanel();
+      startPolling();
+    } catch (e) {
+      closePay();
+      toast(e.message || 'Server bilan aloqa yo‘q.', 'err');
+    }
+  }
+
+  function closePay() {
+    stopPolling();
+    S.order = null;
+    $('payOverlay').hidden = true;
+  }
+
+  async function cancelPay() {
+    // Buyurtma serverda o'z-o'zidan eskiradi (30 daqiqa) — bu yerda faqat oynani yopamiz
+    closePay();
+  }
+
+  async function claimPay() {
+    if (!S.order) return;
+    $('payClaim').disabled = true;
+    try {
+      await getJSON(`/api/order/${S.order.id}/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: S.payMethod }),
+      });
+      setPayStatus('info', 'To‘lov tekshirilmoqda… biroz kuting');
+      speak('Rahmat. To‘lov tekshirilmoqda, biroz kuting.');
+    } catch (e) {
+      $('payClaim').disabled = false;
+      toast('Aloqa uzildi. Qayta urinib ko‘ring.', 'err');
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    S.pollTimer = setInterval(pollOnce, POLL_MS);
+  }
+  function stopPolling() {
+    if (S.pollTimer) clearInterval(S.pollTimer);
+    S.pollTimer = null;
+  }
+
+  async function pollOnce() {
+    if (!S.order) return stopPolling();
+    let data;
+    try { ({ data } = await getJSON(`/api/order/status/${S.order.id}`)); } catch (e) { return; }
+    if (!data || !data.success) return;
+    const st = data.status;
+    if (st === S.lastStatus && st !== 'PRINTING') return;
+    S.lastStatus = st;
+    switch (st) {
+      case 'PENDING': setPayStatus('', 'To‘lov kutilmoqda'); break;
+      case 'CLAIMED': setPayStatus('info', 'To‘lov tekshirilmoqda… biroz kuting'); $('payClaim').disabled = true; break;
+      case 'PAID':
+      case 'PRINTING':
+        $('payClaim').disabled = true;
+        setPayStatus(data.note ? '' : 'ok', data.note ? data.note : 'To‘lov tasdiqlandi — chop etilmoqda…');
+        break;
+      case 'PRINTED': {
+        const id = S.order.id;
+        const wasFile = S.order.src.kind === 'file';
+        closePay();
+        showResult(true, 'Hujjat tayyor!', `Buyurtma #${id} chop etildi. Qog‘ozni printer patnisidan oling.`);
+        speak('To‘lov qabul qilindi. Hujjatingiz tayyor. Qog‘ozingizni oling!');
+        if (wasFile) resetFile();
+        break;
+      }
+      case 'FAILED': {
+        const id = S.order.id;
+        closePay();
+        showResult(false, 'Printer xatosi', `To‘lovingiz qabul qilingan, lekin printer chop eta olmadi. Buyurtma kodi: #${id}. Admin xabardor qilindi.`);
+        break;
+      }
+      case 'REJECTED':
+      case 'CANCELLED':
+      case 'EXPIRED': {
+        const id = S.order.id;
+        closePay();
+        showResult(false, st === 'EXPIRED' ? 'Vaqt tugadi' : 'To‘lov tasdiqlanmadi',
+          `Buyurtma #${id} uchun to‘lov topilmadi. Agar pul yechilgan bo‘lsa, bu kodni adminga ko‘rsating.`);
+        break;
+      }
+    }
+  }
+
+  const iconOk = '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#1B1F23" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>';
+  const iconErr = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>';
+
+  function showResult(ok, title, text) {
+    $('resultIcon').className = 'result-icon' + (ok ? '' : ' err');
+    $('resultIcon').innerHTML = ok ? iconOk : iconErr;
+    $('resultTitle').textContent = title;
+    $('resultText').textContent = text;
+    $('resultBtn').textContent = ok ? 'Yangi buyurtma' : 'Tushunarli';
+    $('resultOverlay').hidden = false;
+    $('resultBtn').focus();
+  }
+
+  function resetFile() {
+    $('fileInput').value = '';
+    update({ file: null, fileExt: '', pages: 0, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
+  }
+
+  // ── Admin ───────────────────────────────────────────────
+  const adminToken = () => { try { return localStorage.getItem('PRINTCHI_ADMIN_TOKEN') || ''; } catch (e) { return ''; } };
+
+  function openAdmin() {
+    $('adminToken').value = adminToken();
+    $('adminOverlay').hidden = false;
+    renderAdminList();
+  }
+
+  function renderAdminList() {
+    $('adminList').innerHTML = S.templates.map((t) => `
+      <div class="admin-item"><div><b>${esc(t.name)}</b><span>${t.pages || 1} bet · ${money(tplPrice(t))}</span></div>
+      <button type="button" data-del="${esc(t.id)}">O‘chirish</button></div>`).join('') || '<p class="empty">Shablon yo‘q</p>';
+  }
+
+  async function adminUpload(e) {
+    e.preventDefault();
+    const token = adminToken();
+    if (!token) { toast('Avval admin parolini kiriting', 'err'); return; }
+    const fd = new FormData(e.target);
+    fd.append('category', 'other');
+    const { status, data } = await getJSON('/api/admin/templates/upload', { method: 'POST', body: fd, headers: { 'X-Admin-Token': token } }).catch(() => ({ data: {} }));
+    if (status === 401) { toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (!data.success) { toast(data.message || 'Yuklab bo‘lmadi', 'err'); return; }
+    toast('Shablon qo‘shildi');
+    e.target.reset();
+    await loadTemplates();
+    renderAdminList();
+  }
+
+  async function adminDelete(id) {
+    const t = S.templates.find((x) => x.id === id);
+    if (!t || !confirmDelete(t.name)) return;
+    const { status, data } = await getJSON(`/api/admin/templates/delete/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'X-Admin-Token': adminToken() } }).catch(() => ({ data: {} }));
+    if (status === 401) { toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (!data.success) { toast(data.message || 'O‘chirib bo‘lmadi', 'err'); return; }
+    toast('O‘chirildi');
+    await loadTemplates();
+    renderAdminList();
+  }
+
+  // window.confirm bloklovchi oyna — admin uchun yetarli, mijoz oqimida ishlatilmaydi
+  function confirmDelete(name) { return window.confirm(`«${name}» shablonini o‘chirasizmi?`); }
+
+  // ── Hodisalar ───────────────────────────────────────────
+  function bind() {
+    $('navBtn').addEventListener('click', () => {
+      S.view = S.view === 'print' ? 'templates' : 'print';
+      render();
+      if (S.view === 'templates') $('tplSearch').focus();
+    });
+    let taps = 0, tapTimer = null;
+    $('brandBtn').addEventListener('click', () => {
+      S.view = 'print';
+      render();
+      taps += 1;                                   // 5 marta bosish — admin
+      clearTimeout(tapTimer);
+      tapTimer = setTimeout(() => { taps = 0; }, 1500);
+      if (taps >= 5) { taps = 0; openAdmin(); }
+    });
+
+    $('dropZone').addEventListener('click', () => $('fileInput').click());
+    $('attachBtn').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', (e) => onFile(e.target.files[0]));
+    const dz = $('dropZone');
+    ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('over'); }));
+    dz.addEventListener('drop', (e) => onFile(e.dataTransfer.files[0]));
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]); });
+
+    $('copiesDec').addEventListener('click', () => update({ copies: S.copies - 1 }, 'Yangiladim. Hozirgi buyurtma:'));
+    $('copiesInc').addEventListener('click', () => update({ copies: S.copies + 1 }, 'Yangiladim. Hozirgi buyurtma:'));
+    document.querySelectorAll('[data-orient]').forEach((b) => b.addEventListener('click', () => update({ orientation: b.dataset.orient }, 'Yangiladim. Hozirgi buyurtma:')));
+    document.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => update({ color: b.dataset.color }, 'Yangiladim. Hozirgi buyurtma:')));
+    document.querySelectorAll('[data-range]').forEach((b) => b.addEventListener('click', () => {
+      update({ rangeMode: b.dataset.range }, 'Yangiladim. Hozirgi buyurtma:');
+      if (b.dataset.range === 'custom') $('rangeInput').focus();
+    }));
+    $('rangeInput').addEventListener('input', (e) => { S.rangeText = e.target.value; S.botLead = 'Yangiladim. Hozirgi buyurtma:'; renderChat(); renderSettings(); renderPaybar(); });
+
+    $('composer').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = $('msgInput').value;
+      $('msgInput').value = '';
+      onCommand(v);
+    });
+
+    $('payBtn').addEventListener('click', () => openPay({ kind: 'file' }));
+    $('tplGrid').addEventListener('click', onTemplateClick);
+    $('quickTemplates').addEventListener('click', onTemplateClick);
+    $('tplSearch').addEventListener('input', renderTemplates);
+
+    document.querySelectorAll('[data-method]').forEach((b) => b.addEventListener('click', () => { S.payMethod = b.dataset.method; renderPayPanel(); }));
+    $('payClaim').addEventListener('click', claimPay);
+    $('payCancel').addEventListener('click', cancelPay);
+    $('resultBtn').addEventListener('click', () => { $('resultOverlay').hidden = true; refreshPrinters(); });
+
+    $('adminClose').addEventListener('click', () => { $('adminOverlay').hidden = true; });
+    $('adminTokenForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      try { localStorage.setItem('PRINTCHI_ADMIN_TOKEN', $('adminToken').value.trim()); } catch (er) { /* */ }
+      toast('Admin paroli saqlandi');
+    });
+    $('adminUpload').addEventListener('submit', adminUpload);
+    $('adminList').addEventListener('click', (e) => { const b = e.target.closest('[data-del]'); if (b) adminDelete(b.dataset.del); });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (!$('adminOverlay').hidden) $('adminOverlay').hidden = true;
+      else if (!$('resultOverlay').hidden) $('resultOverlay').hidden = true;
+      else if (!$('payOverlay').hidden && S.lastStatus !== 'CLAIMED' && S.lastStatus !== 'PRINTING') cancelPay();
+    });
+  }
+
+  // ── Ishga tushirish ─────────────────────────────────────
+  async function init() {
+    bind();
+    render();
+    if (location.hash === '#admin') openAdmin();
+    try { if (AppConfig.fetchLatestLiveUrl && AppConfig.shouldDiscoverUrl()) await AppConfig.fetchLatestLiveUrl(); } catch (e) { /* */ }
+    await Promise.all([loadHealth(), refreshPrinters(), loadTemplates()]);
+    render();
+    setInterval(refreshPrinters, 15000);
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
