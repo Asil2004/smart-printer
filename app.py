@@ -110,13 +110,14 @@ def convert_docx_to_pdf(docx_path: Path) -> Path:
     """
     DOCX faylni LibreOffice headless orqali PDF ga aylantiradi.
     """
-    out_dir = docx_path.parent
+    docx_path = Path(docx_path).resolve()
+    out_dir = docx_path.parent.resolve()
     expected_pdf = out_dir / (docx_path.stem + ".pdf")
 
     libreoffice_cmd = shutil.which("libreoffice") or shutil.which("soffice")
     if not libreoffice_cmd:
         raise RuntimeError(
-            "LibreOffice tizimda topilmadi! Iltimos, o'rnating: sudo apt install -y libreoffice"
+            "LibreOffice tizimda topilmadi! Iltimos, o'rnating: sudo apt install -y libreoffice-writer"
         )
 
     # Avval aylantirilgan va fayldan yangi bo'lsa — qayta aylantirmaymiz
@@ -125,7 +126,7 @@ def convert_docx_to_pdf(docx_path: Path) -> Path:
 
     # Har konvertatsiyaga alohida LibreOffice profili: bir vaqtda ikki buyurtma kelsa
     # umumiy profil qulflanib, ikkinchisi xato bilan tugaydi.
-    profile_dir = Path(tempfile.mkdtemp(prefix="lo_profile_"))
+    profile_dir = Path(tempfile.mkdtemp(prefix="lo_profile_")).resolve()
     cmd = [
         libreoffice_cmd,
         f"-env:UserInstallation=file://{profile_dir}",
@@ -139,12 +140,29 @@ def convert_docx_to_pdf(docx_path: Path) -> Path:
     logger.info(f"DOCX ni PDF ga konvertatsiya qilish: {' '.join(cmd)}")
     try:
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
+        # Agar oddiy pdf bo'lmasa, writer_pdf_Export filtri bilan qayta urinish
+        if not expected_pdf.exists():
+            cmd_filter = [
+                libreoffice_cmd,
+                f"-env:UserInstallation=file://{profile_dir}",
+                "--headless",
+                "--convert-to",
+                "pdf:writer_pdf_Export",
+                "--outdir",
+                str(out_dir),
+                str(docx_path),
+            ]
+            res = subprocess.run(cmd_filter, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
     except subprocess.TimeoutExpired:
         raise RuntimeError("DOCX konvertatsiyasi 3 daqiqada tugamadi")
     finally:
         shutil.rmtree(profile_dir, ignore_errors=True)
-    if res.returncode != 0 or not expected_pdf.exists():
-        raise RuntimeError(f"DOCX konvertatsiyasida xatolik: {res.stderr}")
+
+    if not expected_pdf.exists():
+        err_msg = (res.stderr.strip() or res.stdout.strip() or "Noma'lum xatolik")
+        if "source file could not be loaded" in err_msg:
+            err_msg = "LibreOffice-Writer o'rnatilmagan! Terminalda: sudo apt install -y libreoffice-writer"
+        raise RuntimeError(f"DOCX konvertatsiyasida xatolik: {err_msg}")
 
     return expected_pdf
 
