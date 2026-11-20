@@ -8,8 +8,8 @@
  * Yoki saytdagi ⚙️ tugma orqali sozlash mumkin (localStorage ga saqlanadi)
  */
 const AppConfig = {
-  // Raspberry Pi Cloudflare / Ngrok doimiy URL
-  DEFAULT_API_URL: "https://saving-delivers-lobby-browsing.trycloudflare.com",
+  // Render.com doimiy tezkor bulutli server URL
+  DEFAULT_API_URL: "https://smart-printer-mo1g.onrender.com",
 
   // To'lov tizimi sozlamalari
   PAYMENT: {

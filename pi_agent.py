@@ -32,8 +32,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pi_agent")
 
-# Render.com dagi bulutli server manzili (Render yaratilgach o'zgartiriladi)
-CLOUD_URL = os.environ.get("CLOUD_URL", "https://smart-printer-asil2004.onrender.com").rstrip("/")
+# Render.com dagi bulutli server manzili
+CLOUD_URL = os.environ.get("CLOUD_URL", "https://smart-printer-mo1g.onrender.com").rstrip("/")
 DEFAULT_PRINTER = os.environ.get("PRINTER_NAME", "Canon-LBP3010")
 POLL_INTERVAL = 2  # har 2 soniyada navbat tekshiriladi
 
