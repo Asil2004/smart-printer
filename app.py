@@ -531,6 +531,8 @@ def print_document():
 
 # ----------------- TO'LOV VA BUYURTMALAR TARIXI API -----------------
 recent_orders = []
+_agent_last_seen = 0
+_agent_printers = []
 
 
 @app.route("/api/printers", methods=["GET"])
@@ -539,7 +541,16 @@ def get_printers():
     Ulangan va kutilayotgan barcha printerlar holatini qaytaradi.
     UI da har bir printer uchun 🟢/🔴 ko'rsatgich uchun ishlatiladi.
     """
-    printers = get_all_printer_status()
+    global _agent_last_seen, _agent_printers
+    if IS_CLOUD_SERVER:
+        # Bulutda ishlayotgan bo'lsa: Raspberry Pi agentidan kelgan holatni ko'rsatadi
+        if time.time() - _agent_last_seen < 15 and _agent_printers:
+            printers = _agent_printers
+        else:
+            printers = []
+    else:
+        printers = get_all_printer_status()
+
     stuck = _stuck_order()
     if stuck:
         for p in printers:
@@ -550,6 +561,16 @@ def get_printers():
         "success": True,
         "printers": printers
     })
+
+
+@app.route("/api/agent/heartbeat", methods=["POST"])
+def agent_heartbeat():
+    """Raspberry Pi agenti o'zining va ulangan printerlarning holatini xabar qiladi."""
+    global _agent_last_seen, _agent_printers
+    data = request.get_json(silent=True) or {}
+    _agent_last_seen = time.time()
+    _agent_printers = data.get("printers", [])
+    return jsonify({"success": True})
 
 @app.route("/api/orders", methods=["GET"])
 def get_recent_orders():

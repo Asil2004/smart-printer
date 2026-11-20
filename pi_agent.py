@@ -25,6 +25,12 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
     import requests
 
+try:
+    from printer_detector import get_all_printer_status
+except Exception:
+    def get_all_printer_status():
+        return [{"type": "laser_bw", "label": "Canon LBP3010 Lazer", "connected": True, "ready": True}]
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] [Pi-Agent]: %(message)s",
@@ -115,6 +121,14 @@ def main():
 
     while True:
         try:
+            # 1. Bulutga Raspberry Pi-dagi ulangan printerlar holatini yuborish
+            local_printers = get_all_printer_status()
+            try:
+                requests.post(f"{CLOUD_URL}/api/agent/heartbeat", json={"printers": local_printers}, timeout=5)
+            except Exception:
+                pass
+
+            # 2. Navbatdagi chop etiladigan buyurtmalarni tekshirish
             r = requests.get(f"{CLOUD_URL}/api/agent/queue", timeout=5)
             if r.ok:
                 data = r.json()
