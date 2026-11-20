@@ -7,13 +7,15 @@ Bulutli Render.com serveridan tayyor buyurtmalarni qabul qiladi
 va ularni to'g'ridan-to'g'ri Canon LBP3010 yoki XP-58 printeriga uzatadi.
 
 XP-58 uchun har qanday rasm yoki PDF hujjatni 384px (58mm) ga zichlab,
-to'g'ridan-to'g'ri ESC/POS raster grafik formatida xavfsiz oqimda chop etadi!
+to'g'ridan-to'g'ri ESC/POS raster grafik formatida xavfsiz NON-BLOCKING oqimda chop etadi!
+Hech qachon qotib qolmaydi (timeout himoyasi bilan).
 """
 
 import os
 import sys
 import glob
 import time
+import select
 import shutil
 import logging
 import tempfile
@@ -98,33 +100,56 @@ def choose_active_printer() -> tuple[str, str]:
     return ("laser_bw", "Canon-LBP3010")
 
 
-def send_bytes_to_printer(port: str, data: bytes, chunk_size: int = 512) -> bool:
+def send_bytes_to_printer(port: str, data: bytes, chunk_size: int = 512, timeout_s: float = 12.0) -> bool:
     """
-    Termal printer USB portiga baytlarni 512 baytlik xavfsiz oqimda uzatadi.
-    USB bufer to'lib ketishini (EIO / timeout) 100% oldini oladi.
+    Termal printer USB portiga baytlarni non-blocking va timeout bilan uzatadi.
+    Printer qog'ozi tugasa yoki javob bermasa ham, dastur hech qachon qotib (freeze) qolmaydi!
     """
     total = len(data)
-    offset = 0
-    try:
-        with open(port, "wb", buffering=0) as f:
-            while offset < total:
-                chunk = data[offset:offset + chunk_size]
-                try:
-                    f.write(chunk)
-                    offset += len(chunk)
-                except (BlockingIOError, OSError):
-                    time.sleep(0.02)
-                    continue
-                # Termal kallak nuqtalarni bosib olishi uchun 2ms mikro-pauza
-                time.sleep(0.002)
+    if total == 0:
         return True
+
+    try:
+        fd = os.open(port, os.O_WRONLY | os.O_NONBLOCK)
     except Exception as e:
-        logger.warning(f"Printer portiga uzatishda ogohlantirish: {e}")
-        # Agar kamida 80% bayt uzatilgan bo'lsa — hujjat chop etilgan hisoblanadi
-        if total > 0 and offset >= total * 0.8:
-            logger.info("Faylning 80% dan ortig'i yuborildi, chop etish yakunlandi.")
-            return True
+        logger.error(f"Portni ochib bo'lmadi ({port}): {e}")
         return False
+
+    offset = 0
+    start_time = time.time()
+
+    try:
+        while offset < total:
+            # Timeout tekshiruvi (maksimal 12 soniya)
+            if time.time() - start_time > timeout_s:
+                logger.warning(f"Printerga yozish timeout bo'ldi ({timeout_s}s). {offset}/{total} bayt uzatildi.")
+                return offset >= total * 0.5
+
+            # Port yozishga tayyormi tekshiramiz
+            _, writable, _ = select.select([], [fd], [], 1.0)
+            if not writable:
+                continue
+
+            chunk = data[offset:offset + chunk_size]
+            try:
+                written = os.write(fd, chunk)
+                offset += written
+            except (BlockingIOError, InterruptedError):
+                time.sleep(0.01)
+                continue
+            except OSError as e:
+                logger.error(f"USB portga yozishda xato: {e}")
+                break
+
+            # Termal kallak nuqtalarni qizdirib olishi uchun 2ms mikro-pauza
+            time.sleep(0.002)
+
+        return offset >= total * 0.8
+    finally:
+        try:
+            os.close(fd)
+        except Exception:
+            pass
 
 
 def image_to_escpos_raster(img: Image.Image, max_width: int = 384, chunk_lines: int = 32) -> bytes:
@@ -186,21 +211,13 @@ def pdf_to_images(pdf_path: Path) -> list:
     """PDF faylni sahifalar bo'yicha PIL Image ro'yxatiga aylantiradi."""
     images = []
 
-    # pdftoppm mavjudligini tekshirish
-    if not shutil.which("pdftoppm"):
-        logger.info("pdftoppm (poppler-utils) o'rnatilmoqda...")
-        try:
-            subprocess.run(["sudo", "apt-get", "install", "-y", "poppler-utils"], timeout=60)
-        except Exception as e:
-            logger.warning(f"poppler-utils o'rnatishda xatolik: {e}")
-
     if shutil.which("pdftoppm"):
         tmp_dir = Path(tempfile.mkdtemp(prefix="pdf_ppm_"))
         tmp_prefix = tmp_dir / "page"
         try:
-            # 150 DPI termal uchun ideal zichlik
+            # 150 DPI termal uchun ideal zichlik (maksimal 10 soniya timeout)
             cmd = ["pdftoppm", "-png", "-r", "150", str(pdf_path), str(tmp_prefix)]
-            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
             if proc.returncode == 0:
                 page_files = sorted(glob.glob(f"{tmp_prefix}-*.png"))
                 for pf in page_files:
@@ -209,6 +226,8 @@ def pdf_to_images(pdf_path: Path) -> list:
                             images.append(im.copy())
                     except Exception:
                         pass
+        except Exception as e:
+            logger.warning(f"pdftoppm bajarishda ogohlantirish: {e}")
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -218,7 +237,7 @@ def pdf_to_images(pdf_path: Path) -> list:
             from pypdf import PdfReader
             reader = PdfReader(str(pdf_path))
             full_text = []
-            for p in reader.pages:
+            for p in reader.pages[:3]:  # maksimal 3 sahifa
                 t = p.extract_text()
                 if t:
                     full_text.append(t)
@@ -245,12 +264,12 @@ def render_text_to_image(text: str, max_width: int = 384) -> Image.Image:
             lines.append("")
 
     line_height = 24
-    img_height = max(100, len(lines) * line_height + 40)
+    img_height = max(100, min(1200, len(lines) * line_height + 40))
     img = Image.new("RGB", (max_width, img_height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
     y = 20
-    for line in lines:
+    for line in lines[:45]:  # xavfsiz hajm
         draw.text((10, y), line, fill=(0, 0, 0))
         y += line_height
 
@@ -310,7 +329,7 @@ def print_thermal_job(file_path: Path, copies: int = 1, job_info: dict = None) -
             payload.extend(b"Muvaffaqiyatli chop etildi!\n".encode("utf-8"))
             payload.extend(b"\n\n\n\n\x1dV\x00")          # Feed & Cut
 
-        logger.info(f"[{port}] {len(images)} ta sahifa ({len(payload)} bayt) XP-58 ga xavfsiz oqimda uzatilmoqda...")
+        logger.info(f"[{port}] {len(images)} ta sahifa ({len(payload)} bayt) XP-58 ga uzatilmoqda...")
         ok = send_bytes_to_printer(port, bytes(payload))
         if ok:
             logger.info(f"Buyurtma #{order_id} to'liq zichlangan holda muvaffaqiyatli chop etildi!")
@@ -346,7 +365,7 @@ def print_laser_cups(pdf_path: Path, printer_name: str, copies: int = 1, orienta
     cmd.append(str(pdf_path))
 
     logger.info(f"Chop etish buyrug'i: {' '.join(cmd)}")
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
     if proc.returncode != 0:
         logger.error(f"CUPS xatoligi: {proc.stderr.strip()}")
         return False
@@ -377,8 +396,11 @@ def process_job(job: dict):
                 f.write(chunk)
     except Exception as e:
         logger.error(f"Fayl yuklab olishda xato: {e}")
-        requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
-                      json={"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"}, timeout=5)
+        try:
+            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
+                          json={"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"}, timeout=5)
+        except Exception:
+            pass
         return
 
     # 3. Printer turini aniqlash va chop etish
@@ -389,18 +411,29 @@ def process_job(job: dict):
     ptype, pname = choose_active_printer()
     logger.info(f"Chop etish rejimi: [{ptype}] -> {pname}")
 
-    if ptype == "thermal":
-        ok = print_thermal_job(tmp_pdf, copies=copies, job_info=job)
-    else:
-        ok = print_laser_cups(tmp_pdf, printer_name=pname, copies=copies, orientation=orientation, page_ranges=ranges)
+    try:
+        if ptype == "thermal":
+            ok = print_thermal_job(tmp_pdf, copies=copies, job_info=job)
+        else:
+            ok = print_laser_cups(tmp_pdf, printer_name=pname, copies=copies, orientation=orientation, page_ranges=ranges)
+    except Exception as ex:
+        logger.error(f"Kutilmagan xatolik: {ex}")
+        ok = False
 
     # 4. Natijani bulutga xabar qilish
     if ok:
         logger.info(f"Buyurtma #{order_id} muvaffaqiyatli chop etildi!")
-        requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
+        try:
+            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
+        except Exception:
+            pass
     else:
-        requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
-                      json={"status": "FAILED", "error": f"{pname} printer xatosi"}, timeout=5)
+        logger.error(f"Buyurtma #{order_id} muvaffaqiyatsiz bo'ldi: {pname}")
+        try:
+            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
+                          json={"status": "FAILED", "error": f"{pname} printer xatosi"}, timeout=5)
+        except Exception:
+            pass
 
     # Tozalash
     try:
