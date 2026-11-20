@@ -96,7 +96,6 @@ def choose_active_printer() -> tuple[str, str]:
 def send_bytes_to_printer(port: str, data: bytes) -> bool:
     """
     Termal printer portiga baytlarni to'g'ridan-to'g'ri va ishonchli uzatadi.
-    Standart open va zarur bo'lsa sudo tee zaxirasi orqali kafolatli yozadi.
     """
     if not port or not os.path.exists(port):
         logger.error(f"Termal printer porti topilmadi: {port}")
@@ -111,18 +110,29 @@ def send_bytes_to_printer(port: str, data: bytes) -> bool:
         with open(port, "wb") as f:
             f.write(data)
             f.flush()
-        logger.info(f"Portga {len(data)} bayt muvaffaqiyatli yozildi!")
+        logger.info(f"Portga ({port}) {len(data)} bayt muvaffaqiyatli uzatildi!")
         return True
+    except PermissionError:
+        logger.error(
+            f"RUXSAT XATOSI: {port} ga yozish huquqi yo'q! "
+            f"Iltimos, terminalda quyidagini bajaring: sudo chmod 666 {port} "
+            f"yoki agentni quyidagicha ishga tushiring: sudo python3 pi_agent.py"
+        )
     except Exception as e:
-        logger.warning(f"Standart open('{port}') orqali yozishda ogohlantirish: {e}. Sudo tee zaxirasi ishlatiladi...")
-        try:
-            p = subprocess.Popen(["sudo", "tee", port], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            p.communicate(input=data, timeout=15)
-            if p.returncode == 0:
-                logger.info(f"Sudo tee orqali {len(data)} bayt muvaffaqiyatli uzatildi!")
-                return True
-        except Exception as ex2:
-            logger.error(f"Sudo tee xatosi: {ex2}")
+        logger.error(f"Portga ({port}) yozishda xatolik: {e}")
+
+    # Fallback: Agar CUPS orqali XP58 navbati bo'lsa
+    try:
+        tmp_raw = Path(tempfile.gettempdir()) / f"raw_escpos_{int(time.time())}.bin"
+        tmp_raw.write_bytes(data)
+        cmd = ["lp", "-d", "XP58", "-o", "raw", str(tmp_raw)]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+        tmp_raw.unlink(missing_ok=True)
+        if res.returncode == 0:
+            logger.info("CUPS XP58 raw navbati orqali muvaffaqiyatli uzatildi!")
+            return True
+    except Exception:
+        pass
 
     return False
 
