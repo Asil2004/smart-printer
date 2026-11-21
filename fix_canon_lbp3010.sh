@@ -76,32 +76,34 @@ ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="04a9", ATTR{idProduct}=="26da"
 EOF
 udevadm control --reload-rules 2>/dev/null || true
 
-# 4. PPD va rastertocapt filtrini tekshirish
-echo -e "${YELLOW}[4/7] Filtr va PPD fayllarini tekshirish...${NC}"
-FILTER="/usr/lib/cups/filter/rastertocapt"
-if [ ! -f "$FILTER" ]; then
-    if [ -f "/home/cail/captdriver/src/rastertocapt" ]; then
-        cp /home/cail/captdriver/src/rastertocapt "$FILTER"
-    elif [ -f "$(pwd)/captdriver/src/rastertocapt" ]; then
-        cp "$(pwd)/captdriver/src/rastertocapt" "$FILTER"
+# 4. Zamonaviy mounaiban/captdriver filtrini yig'ish (pages loop tuzatilgan)
+echo -e "${YELLOW}[4/7] mounaiban/captdriver (zamonaviy drayver) yangilanmoqda...${NC}"
+BUILD_DIR="/tmp/captdriver_mounaiban"
+rm -rf "$BUILD_DIR"
+if git clone --depth 1 https://github.com/mounaiban/captdriver.git "$BUILD_DIR" 2>/dev/null; then
+    cd "$BUILD_DIR"
+    autoreconf -i >/dev/null 2>&1 || (aclocal && autoconf && automake --add-missing >/dev/null 2>&1) || true
+    ./configure >/dev/null 2>&1 || true
+    make -s >/dev/null 2>&1 || true
+    make -s ppd >/dev/null 2>&1 || true
+    if [ -f src/rastertocapt ]; then
+        install -m 0755 src/rastertocapt /usr/lib/cups/filter/rastertocapt
+        echo -e "${GREEN}   Yangi rastertocapt o'rnatildi: /usr/lib/cups/filter/rastertocapt${NC}"
     fi
+    if [ -f ppd/CanonLBP-3010-3018-3050.ppd ]; then
+        mkdir -p /usr/share/cups/model/captdriver
+        install -m 0644 ppd/CanonLBP-3010-3018-3050.ppd /usr/share/cups/model/captdriver/CanonLBP-3010-3018-3050.ppd
+        cp ppd/CanonLBP-3010-3018-3050.ppd "/etc/cups/ppd/${PRINTER_NAME}.ppd"
+        sed -i 's/^\*cupsManualCopies: False/*cupsManualCopies: True/' "/etc/cups/ppd/${PRINTER_NAME}.ppd"
+        chmod 644 "/etc/cups/ppd/${PRINTER_NAME}.ppd"
+        echo -e "${GREEN}   Yangi PPD o'rnatildi: /etc/cups/ppd/${PRINTER_NAME}.ppd${NC}"
+    fi
+    cd - >/dev/null
+else
+    echo -e "${YELLOW}   Internetdan yuklab bo'lmadi, mavjud filtrdan foydalaniladi.${NC}"
 fi
-chmod 755 "$FILTER" 2>/dev/null || true
 
-# PPD faylini to'g'irlash
-PPD_SRC=""
-if [ -f "/home/cail/captdriver/ppd/CanonLBP-3010-3018-3050.ppd" ]; then
-    PPD_SRC="/home/cail/captdriver/ppd/CanonLBP-3010-3018-3050.ppd"
-elif [ -f "/usr/share/cups/model/captdriver/CanonLBP-3010-3018-3050.ppd" ]; then
-    PPD_SRC="/usr/share/cups/model/captdriver/CanonLBP-3010-3018-3050.ppd"
-fi
-
-if [ -n "$PPD_SRC" ]; then
-    cp "$PPD_SRC" "/etc/cups/ppd/${PRINTER_NAME}.ppd"
-    sed -i 's/^\*cupsManualCopies: False/*cupsManualCopies: True/' "/etc/cups/ppd/${PRINTER_NAME}.ppd"
-    chmod 644 "/etc/cups/ppd/${PRINTER_NAME}.ppd"
-    echo -e "${GREEN}   PPD to'g'rilandi: $PPD_SRC -> /etc/cups/ppd/${PRINTER_NAME}.ppd${NC}"
-fi
+chmod 755 /usr/lib/cups/filter/rastertocapt 2>/dev/null || true
 
 # 5. CUPS printer navbatini yangilash
 echo -e "${YELLOW}[5/7] CUPS printerni qayta ro'yxatdan o'tkazish...${NC}"

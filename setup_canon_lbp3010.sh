@@ -33,8 +33,7 @@ warn() { echo -e "${YELLOW}$*${NC}"; }
 die()  { echo -e "${RED}[XATO] $*${NC}"; exit 1; }
 
 PRINTER_NAME="Canon-LBP3010"
-CAPT_REPO="https://github.com/agalakhov/captdriver.git"
-CAPT_COMMIT="175f8ff4464591feb67728c7752ac752c7b48d43"   # 0.1.4.1 — sinovdan o'tgan versiya
+CAPT_REPO="https://github.com/mounaiban/captdriver.git"
 PPD_NAME="CanonLBP-3010-3018-3050.ppd"
 PPD_DIR="/usr/share/cups/model/captdriver"
 WORK_DIR="/tmp/captdriver_build"
@@ -72,7 +71,6 @@ ok "[2/6] captdriver (rastertocapt) ni yig'ish..."
 rm -rf "$WORK_DIR"
 git clone --quiet "$CAPT_REPO" "$WORK_DIR" || die "GitHub dan yuklab bo'lmadi — internetni tekshiring"
 cd "$WORK_DIR"
-git checkout --quiet "$CAPT_COMMIT"
 autoreconf -i >/dev/null 2>&1
 ./configure >/dev/null
 make -s
