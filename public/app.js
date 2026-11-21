@@ -551,8 +551,20 @@
   async function pollOnce() {
     if (!S.order) return stopPolling();
     let data;
-    try { ({ data } = await getJSON(`/api/order/status/${S.order.id}`)); } catch (e) { return; }
-    if (!data || !data.success) return;
+    try {
+      const res = await getJSON(`/api/order/status/${S.order.id}`);
+      data = res.data;
+    } catch (e) {
+      return;
+    }
+    if (!data || !data.success) {
+      if (data && data.status === 'NOT_FOUND') {
+        stopPolling();
+        setPayStatus('err', 'Buyurtma topilmadi yoki eskirgan. Qaytadan urinib ko‘ring.');
+        $('payClaim').disabled = false;
+      }
+      return;
+    }
     const st = data.status;
     if (st === S.lastStatus && st !== 'PRINTING') return;
     S.lastStatus = st;
