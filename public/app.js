@@ -25,6 +25,7 @@
   // ── Holat ───────────────────────────────────────────────
   const S = {
     view: 'print',
+    printerType: 'laser_bw', // 'laser_bw' (Canon A4) yoki 'thermal' (XP-58 Chek)
     file: null,            // File
     fileExt: '',
     pages: 0,              // fayldagi jami betlar
@@ -140,13 +141,19 @@
     const range = S.rangeMode === 'all' ? `barcha ${S.pages} bet` : `${normRange(S.rangeText).replace(/-/g, '–')} (${sel} bet)`;
     const orient = S.orientation === 'landscape' ? 'albom' : 'kitob';
     const color = S.color === 'color' ? 'rangli' : 'oq-qora';
-    return `${range} · ${orient} · ${color} · ${S.copies} nusxa = ${money(sel * S.copies * unitPrice())}`;
+    const prn = S.printerType === 'thermal' ? '🧾 XP-58 Chek' : '🖨️ Canon A4';
+    return `${prn} · ${range} · ${orient} · ${color} · ${S.copies} nusxa = ${money(sel * S.copies * unitPrice())}`;
   }
 
   function renderChips() {
     const chips = $('chips');
     if (!S.file || S.counting) { chips.hidden = true; return; }
     const list = [];
+    if (S.printerType === 'thermal') {
+      list.push(['🖨️ Canon A4 ga o‘tish', () => update({ printerType: 'laser_bw' }, 'Canon LBP3010 A4 lazer tanlandi.')]);
+    } else {
+      list.push(['🧾 XP-58 Chekda chiqarish', () => update({ printerType: 'thermal' }, 'XP-58 termal chek printeri tanlandi.')]);
+    }
     if (S.copies < 2) list.push(['2 nusxa', () => update({ copies: 2 }, 'Tushundim: 2 nusxa.')]);
     else list.push(['1 nusxa', () => update({ copies: 1 }, 'Tushundim: 1 nusxa.')]);
     if (S.pages > 3 && !(S.rangeMode === 'custom' && normRange(S.rangeText) === '1-3')) {
@@ -176,6 +183,7 @@
     $('copiesOut').textContent = S.copies;
     $('copiesDec').disabled = S.copies <= 1;
     $('copiesInc').disabled = S.copies >= MAX_COPIES;
+    document.querySelectorAll('[data-printer]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.printer === S.printerType)));
     document.querySelectorAll('[data-orient]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.orient === S.orientation)));
     document.querySelectorAll('[data-range]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.range === S.rangeMode)));
     document.querySelectorAll('[data-color]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.color === S.color)));
@@ -201,10 +209,15 @@
       return;
     }
     const sel = selectedPages();
-    $('totalLabel').textContent = S.counting ? 'Hisoblanmoqda…' : `Jami · ${sel} bet × ${S.copies} nusxa`;
+    const prnLabel = S.printerType === 'thermal' ? 'XP-58 Chek' : 'Canon A4 Lazer';
+    $('totalLabel').textContent = S.counting ? 'Hisoblanmoqda…' : `Jami · ${sel} bet × ${S.copies} nusxa [${prnLabel}]`;
     $('totalText').textContent = S.counting ? '…' : money(sel * S.copies * unitPrice());
-    btn.disabled = S.counting || !sel || !S.printerReady;
-    btn.title = S.printerReady ? '' : 'Printer hozir tayyor emas';
+    const canon = S.printers.find((p) => p.type === 'laser_bw' && p.connected);
+    const thermal = S.printers.find((p) => p.type === 'thermal' && p.connected);
+    const targetPrn = S.printerType === 'thermal' ? thermal : canon;
+    const isReady = targetPrn ? targetPrn.ready : S.printerReady;
+    btn.disabled = S.counting || !sel || !isReady;
+    btn.title = isReady ? '' : (targetPrn ? (targetPrn.status_reason || 'Tanlangan printer band') : 'Printer hozir tayyor emas');
   }
 
   function renderStatus() {
@@ -295,6 +308,13 @@
     else if (/rangli/.test(t)) {
       if (S.colorReady) { patch.color = 'color'; done.push('rangli'); }
       else done.push('rangli printer hozir ulanmagan, oq-qora qoldi');
+    }
+    if (/xp-?58|chek|termal|receipt|pos|kvitansiya/.test(t)) {
+      patch.printerType = 'thermal';
+      done.push('XP-58 termal chek printeri');
+    } else if (/canon|lazer|laser|a4|lbp/.test(t)) {
+      patch.printerType = 'laser_bw';
+      done.push('Canon LBP3010 A4 lazer printeri');
     }
     const wantsPay = /to'la|tola|chop et|bosib|tayyor|\bha\b/.test(t);
     return { patch, done, wantsPay };
@@ -727,6 +747,13 @@
 
     $('copiesDec').addEventListener('click', () => update({ copies: S.copies - 1 }, 'Yangiladim. Hozirgi buyurtma:'));
     $('copiesInc').addEventListener('click', () => update({ copies: S.copies + 1 }, 'Yangiladim. Hozirgi buyurtma:'));
+    document.querySelectorAll('[data-printer]').forEach((b) => b.addEventListener('click', () => {
+      const pt = b.dataset.printer;
+      const msg = pt === 'thermal'
+        ? 'XP-58 termal chek printeri tanlandi (tezkor chek / dasturchi rejimi).'
+        : 'Canon LBP3010 (A4 lazer) printeri tanlandi.';
+      update({ printerType: pt }, msg);
+    }));
     document.querySelectorAll('[data-orient]').forEach((b) => b.addEventListener('click', () => update({ orientation: b.dataset.orient }, 'Yangiladim. Hozirgi buyurtma:')));
     document.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => update({ color: b.dataset.color }, 'Yangiladim. Hozirgi buyurtma:')));
     document.querySelectorAll('[data-range]').forEach((b) => b.addEventListener('click', () => {

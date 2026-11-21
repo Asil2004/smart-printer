@@ -48,6 +48,13 @@
 
     <!-- Fayl tanlangach: sozlamalar -->
     <section class="grid" id="settingsGrid" hidden aria-label="Chop etish sozlamalari">
+      <div class="tile span-2" id="printerTile">
+        <p class="tile-label" id="lblPrinter">Printer tanlash</p>
+        <div class="seg" role="group" aria-labelledby="lblPrinter">
+          <button type="button" data-printer="laser_bw" id="btnPrinterLaser" aria-pressed="true">🖨️ Canon LBP3010 (A4 Lazer)</button>
+          <button type="button" data-printer="thermal" id="btnPrinterThermal" aria-pressed="false">🧾 XP-58 (58mm Chek)</button>
+        </div>
+      </div>
       <div class="tile">
         <p class="tile-label" id="lblCopies">Nusxa</p>
         <div class="stepper" role="group" aria-labelledby="lblCopies">

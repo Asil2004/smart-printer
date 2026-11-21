@@ -169,26 +169,56 @@ def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait
     if not job_id:
         return True, "Chop etishga yuborildi"
 
-    # Ish holatini 12 soniya davomida kuzatish (qog'oz chiqqanini tekshirish)
+    # Ish holatini 20 soniya davomida kuzatish (qog'oz chiqqanini tekshirish)
     logger.info(f"Canon ish holati kuzatilmoqda: {job_id}...")
-    stuck = False
-    for _ in range(6):
+    for _ in range(10):
         time.sleep(2)
         q_check = subprocess.run(["lpstat", "-o", CANON_PRINTER], stdout=subprocess.PIPE, text=True)
         if job_id not in q_check.stdout:
             logger.info(f"✅ Canon LBP3010 ishni muvaffaqiyatli yakunladi: {job_id}")
             return True, "Muvaffaqiyatli chop etildi"
 
-        # Agar navbatda turgan bo'lsa, printer holatini tekshiramiz
-        p_check = subprocess.run(["lpstat", "-p", CANON_PRINTER], stdout=subprocess.PIPE, text=True)
-        if "Rendering completed" in p_check.stdout:
-            stuck = True
+    # Agar 20 soniyadan so'ng ham navbatda bo'lsa:
+    p_check = subprocess.run(["lpstat", "-p", CANON_PRINTER], stdout=subprocess.PIPE, text=True)
+    if "disabled" in p_check.stdout:
+        logger.warning("Canon printeri o'chirilgan (disabled) holatda!")
+        return False, "Canon navbatda to'xtab qoldi (disabled)"
 
-    if stuck:
-        logger.warning(f"⚠️ Canon LBP3010 'Rendering completed' da to'xtab qoldi!")
-        return False, "Canon 'Rendering completed' holatida to'xtab qoldi"
+    # Aks holda, agar Rendering completed bo'lsa, CUPS printerga ma'lumot uzatmoqda
+    logger.info(f"Canon printeriga ma'lumot uzatildi, chop etish davom etmoqda: {job_id}")
+    return True, "Chop etishga yuborildi (printer ishlamoqda)"
 
-    return True, "Chop etishga yuborildi"
+
+def get_spool_dir() -> Path:
+    """Xavfsiz va ruxsatlar bilan muammosiz foydalanuvchi spool papkasi."""
+    d = Path.home() / ".smart_printchi_spool"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    except Exception:
+        fallback = Path(__file__).resolve().parent / ".spool"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+def cleanup_stale_files():
+    """Eski vaqtincha fayllar va /tmp dagi qotib qolgan fayllarni tozalash."""
+    try:
+        import glob
+        for f in glob.glob("/tmp/printchi_*"):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        spool = get_spool_dir()
+        for f in spool.glob("job_*.pdf"):
+            if time.time() - f.stat().st_mtime > 1800:
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def process_job(job: dict):
@@ -216,7 +246,8 @@ def process_job(job: dict):
         return
 
     # Asosiy: Canon LBP3010 (A4 lazer)
-    tmp_pdf = Path(tempfile.gettempdir()) / f"printchi_{order_id}.pdf"
+    spool_dir = get_spool_dir()
+    tmp_pdf = spool_dir / f"job_{order_id}_{int(time.time())}.pdf"
     try:
         download_url = f"{CLOUD_URL}/api/agent/download/{order_id}"
         logger.info(f"Fayl yuklab olinmoqda: {download_url}")
@@ -306,6 +337,7 @@ def main():
     xp_port = find_xp58_port()
     logger.info(f"  Dasturchi (POS) : {'XP-58 (' + xp_port + ')' if xp_port else 'Ulanmagan'}")
     logger.info("==================================================")
+    cleanup_stale_files()
 
     while True:
         try:
