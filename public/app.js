@@ -370,6 +370,37 @@
     if (wantsPay && !$('payBtn').disabled) openPay({ kind: 'file' });
   }
 
+  // PDF sahifalarini brauzerda 0.01 soniyada (serverga yuklamasdan) tezkor sanash
+  async function countPdfPagesFast(file) {
+    try {
+      const size = file.size;
+      const tailBytes = Math.min(size, 131072); // 128 KB
+      // 1. Oxiridan 128KB tekshirish
+      const tailBlob = file.slice(size - tailBytes, size);
+      const tailText = await tailBlob.text();
+      let maxCount = 0;
+      const matches = [...tailText.matchAll(/\/Count\s+(\d+)/g)];
+      for (const m of matches) {
+        const val = parseInt(m[1], 10);
+        if (!isNaN(val) && val > maxCount && val < 5000) maxCount = val;
+      }
+      if (maxCount > 0) return maxCount;
+
+      // 2. Boshidan 128KB tekshirish
+      const headBlob = file.slice(0, tailBytes);
+      const headText = await headBlob.text();
+      const headMatches = [...headText.matchAll(/\/Count\s+(\d+)/g)];
+      for (const m of headMatches) {
+        const val = parseInt(m[1], 10);
+        if (!isNaN(val) && val > maxCount && val < 5000) maxCount = val;
+      }
+      if (maxCount > 0) return maxCount;
+    } catch (e) {
+      console.warn('Fast PDF count error:', e);
+    }
+    return 0;
+  }
+
   // ── Fayl ────────────────────────────────────────────────
   async function onFile(file) {
     if (!file) return;
@@ -377,7 +408,26 @@
     if (!EXTS.includes(ext)) { toast('Bu format qabul qilinmaydi. PDF, DOCX, JPG yoki PNG yuboring.', 'err'); return; }
     if (file.size > MAX_BYTES) { toast('Fayl 64 MB dan katta.', 'err'); return; }
     S.view = 'print';
-    update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
+
+    // Rasm bo'lsa darhol 1 bet (serverga so'rovsiz chaqmoqdek ochiladi)
+    if (['png', 'jpg', 'jpeg'].includes(ext)) {
+      update({ file, fileExt: ext, pages: 1, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
+      speak('Rasm qabul qilindi.');
+      return;
+    }
+
+    // PDF bo'lsa brauzerda 0.01 soniyada tezkor sahifalar sonini aniqlash (katta fayllar ham qotmaydi)
+    if (ext === 'pdf') {
+      const fastCount = await countPdfPagesFast(file);
+      if (fastCount > 0) {
+        update({ file, fileExt: ext, pages: fastCount, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray', printerType: 'laser_bw' }, '');
+        speak(`${fastCount} bet topildi.`);
+        return;
+      }
+    }
+
+    // DOCX yoki aniqlab bo'lmagan PDF uchun server orqali tekshirish
+    update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray', printerType: 'laser_bw' }, '');
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -530,7 +580,11 @@
     $('payAmount').textContent = '— so‘m';
     $('paySummary').textContent = 'Buyurtma tayyorlanmoqda…';
     $('payClaim').disabled = true;
-    setPayStatus('', 'Buyurtma yaratilmoqda…');
+    if (src.kind !== 'template' && S.file && S.file.size > 2 * 1024 * 1024) {
+      setPayStatus('', `Fayl serverga yuklanmoqda (${(S.file.size / (1024 * 1024)).toFixed(1)} MB)…`);
+    } else {
+      setPayStatus('', 'Buyurtma yaratilmoqda…');
+    }
     renderPayPanel();
     $('payCancel').focus();
 

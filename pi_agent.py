@@ -187,17 +187,21 @@ def image_to_escpos(image) -> bytes:
     return bytes(buf)
 
 
-def pdf_to_images(pdf_path: Path) -> list:
-    """PDF sahifalarini PIL Image ro'yxatiga aylantirish (pdftoppm yoki ghostscript yordamida)."""
+def pdf_to_images(pdf_path: Path, max_pages: int = 1) -> list:
+    """PDF sahifalarini (ko'pi bilan max_pages) PIL Image ro'yxatiga tezkor aylantirish."""
     if Image is None:
         return []
     images = []
     tmp_prefix = f"/tmp/thermal_pdf_{int(time.time())}_{uuid.uuid4().hex[:4]}"
 
-    # 1. pdftoppm orqali sinab ko'rish
+    # 1. pdftoppm orqali tezkor (scale-to-x 384, max 1 sahifa, timeout=10s)
     try:
-        cmd = ["pdftoppm", "-png", "-r", "150", str(pdf_path), tmp_prefix]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cmd = [
+            "pdftoppm", "-png", "-f", "1", "-l", str(max_pages),
+            "-scale-to-x", "384", "-scale-to-y", "-1",
+            str(pdf_path), tmp_prefix
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         if res.returncode == 0:
             for f in sorted(glob.glob(f"{tmp_prefix}-*.png")):
                 try:
@@ -211,13 +215,14 @@ def pdf_to_images(pdf_path: Path) -> list:
     except Exception as e:
         logger.debug(f"pdftoppm ishlamadi: {e}")
 
-    # 2. Ghostscript (gs) orqali sinab ko'rish (Linux/Raspberry Pi da doim mavjud)
+    # 2. Ghostscript (gs) orqali (timeout=10s, faqat 1-sahifa)
     try:
         gs_cmd = [
-            "gs", "-sDEVICE=png16m", "-r150", "-dNOPAUSE", "-dBATCH", "-dSAFER",
+            "gs", "-sDEVICE=png16m", "-r72", "-dNOPAUSE", "-dBATCH", "-dSAFER",
+            "-dFirstPage=1", f"-dLastPage={max_pages}",
             f"-sOutputFile={tmp_prefix}-%03d.png", str(pdf_path)
         ]
-        res = subprocess.run(gs_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.run(gs_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         if res.returncode == 0:
             for f in sorted(glob.glob(f"{tmp_prefix}-*.png")):
                 try:
@@ -230,17 +235,6 @@ def pdf_to_images(pdf_path: Path) -> list:
                 return images
     except Exception as e:
         logger.debug(f"gs xatosi: {e}")
-
-    # 3. pypdfium2 / pdf2image orqali
-    try:
-        import pypdfium2 as pdfium
-        pdf = pdfium.PdfDocument(str(pdf_path))
-        for page in pdf:
-            images.append(page.render(scale=1.5).to_pil())
-        if images:
-            return images
-    except Exception:
-        pass
 
     return images
 
@@ -268,10 +262,30 @@ def text_to_image(text: str):
     return img
 
 
+def write_to_thermal_port(port: str, data: bytes | bytearray, chunk_size: int = 1024, delay: float = 0.01) -> bool:
+    """XP-58 apparati USB buferi to'lib qotib qolmasligi uchun baytlarni bo'lib-bo'lib (chunk) yozadi."""
+    try:
+        with open(port, "wb") as f:
+            for offset in range(0, len(data), chunk_size):
+                chunk = data[offset:offset + chunk_size]
+                f.write(chunk)
+                f.flush()
+                if delay > 0:
+                    time.sleep(delay)
+        return True
+    except PermissionError:
+        logger.error("XP-58 portiga ruxsat yetarli emas! 'sudo usermod -aG lp cail' kerak.")
+        return False
+    except Exception as e:
+        logger.error(f"XP-58 ga yozishda xato: {e}")
+        return False
+
+
 def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     """
-    Faylni 384px (58mm termal) lentaga zichlab (scale/compress) to'liq chop etadi.
-    PDF, Rasm (.jpg, .png) va Matn fayllarini qo'llab-quvvatlaydi.
+    XP-58 termal chek printerida chop etish:
+    - Ko'p sahifali PDF/DOCX hujjatlar uchun rasmiy to'lov cheki (kvitansiya) chiqaradi.
+    - 1-sahifali rasm yoki kvitansiya bo'lsa, rasmni 384px ga moslab chiqaradi.
     """
     port = find_xp58_port()
     if not port:
@@ -281,8 +295,9 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     oid = order.get("id", "TEST")
     fname = order.get("filename", file_path.name)
     copies = order.get("copies", 1)
+    pages = order.get("pages", 1)
 
-    # 1. Haqiqiy formatni aniqlash (fayl ichidagi magic bytes orqali)
+    # 1. Haqiqiy formatni aniqlash
     is_pdf = False
     try:
         with open(file_path, "rb") as f:
@@ -292,14 +307,17 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     except Exception:
         pass
 
+    # 2. Agar ko'p sahifali hujjat bo'lsa (masalan 9 betlik taqdimot yoki Word fayl):
+    # XP-58 58mm chek apparati bo'lgani uchun rasmiy chek/kvitansiya chiqarish to'g'ri va xavfsiz
+    if pages > 1 or (is_pdf and pages > 1):
+        logger.info(f"Ko'p sahifali hujjat (#{oid}, {pages} bet) → XP-58 da rasmiy buyurtma cheki chiqarilmoqda...")
+        return print_to_xp58(order, note="Ko'p sahifali hujjat qabul qilindi.\n(A4 chop etish uchun Canon LBP3010 tanlang)")
+
+    # 3. Yagona sahifali rasm yoki 1-sahifali fayl bo'lsa:
     images = []
-
-    # 2. Agar fayl PDF bo'lsa (yoki bulut serveri uni PDF ga aylantirib yuborgan bo'lsa)
     if is_pdf or file_path.suffix.lower() == ".pdf":
-        logger.info(f"Fayl PDF deb aniqlandi (#{oid}), sahifalar tasvirga aylantirilmoqda...")
-        images = pdf_to_images(file_path)
+        images = pdf_to_images(file_path, max_pages=1)
 
-    # 3. Agar PDF bo'lmasa yoki PDF dan rasm olinmagan bo'lsa, oddiy tasvir deb ochib ko'rish
     if not images and Image:
         try:
             with Image.open(file_path) as img:
@@ -307,7 +325,6 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
         except Exception:
             pass
 
-    # 4. Agar matn bo'lsa
     if not images and file_path.suffix.lower() in [".txt", ".receipt"]:
         try:
             txt = file_path.read_text(encoding="utf-8", errors="ignore")
@@ -317,15 +334,13 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
         except Exception:
             pass
 
-    # Agar rasmlarga aylantirib bo'lmasa, standart chek chiqariladi
     if not images:
-        logger.warning(f"Fayl tasvirga aylantirilmadi, standart matnli chek chiqarilmoqda: {file_path}")
-        return print_to_xp58(order, note="Fayl formati raster qilib bo'lmadi")
+        logger.info(f"Fayl matnli chek sifatida chiqarilmoqda: #{oid}")
+        return print_to_xp58(order, note="Buyurtma cheki")
 
+    # Rasmli chek tayyorlash
     data = bytearray()
     data.extend(INIT_PRINTER)
-
-    # Bosh qismi (Header)
     data.extend(ALIGN_CENTER)
     data.extend(DOUBLE_SIZE + BOLD_ON)
     data.extend("SMART PRINTCHI (58mm)\n".encode("utf-8", errors="ignore"))
@@ -333,16 +348,11 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     data.extend(f"Buyurtma: #{oid} | {fname[:20]}\n".encode("utf-8", errors="ignore"))
     data.extend("--------------------------------\n".encode("utf-8"))
 
-    # Har bir sahifani zichlab raster holatda chiqarish
     for idx, img in enumerate(images):
-        if idx > 0:
-            data.extend(ALIGN_CENTER)
-            data.extend(f"- - - Sahifa {idx + 1} - - -\n".encode("utf-8"))
         raster_bytes = image_to_escpos(img)
         data.extend(raster_bytes)
         data.extend(b"\n")
 
-    # Yakuniy qismi (Footer)
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     data.extend(ALIGN_CENTER)
     data.extend("--------------------------------\n".encode("utf-8"))
@@ -352,35 +362,13 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     data.extend("--------------------------------\n".encode("utf-8"))
     data.extend(FEED_CUT)
 
-    try:
-        with open(port, "wb") as f:
-            for _ in range(max(1, min(copies, 5))):
-                f.write(data)
-                f.flush()
-        logger.info(f"✅ XP-58 da fayl ({len(images)} sahifa) muvaffaqiyatli zichlab chop etildi (#{oid})")
-        return True
-    except PermissionError:
-        logger.error("XP-58 portiga ruxsat yetarli emas! 'sudo usermod -aG lp cail' kerak.")
-        return False
-    except Exception as e:
-        logger.error(f"XP-58 ga faylni chiqarishda xato: {e}")
-        return False
-    data.extend("--------------------------------\n".encode("utf-8"))
-    data.extend(FEED_CUT)
+    for _ in range(max(1, min(copies, 5))):
+        ok = write_to_thermal_port(port, data)
+        if not ok:
+            return False
 
-    try:
-        with open(port, "wb") as f:
-            for _ in range(max(1, min(copies, 5))):
-                f.write(data)
-                f.flush()
-        logger.info(f"✅ XP-58 da fayl ({len(images)} sahifa) muvaffaqiyatli zichlab chop etildi (#{oid})")
-        return True
-    except PermissionError:
-        logger.error("XP-58 portiga ruxsat yetarli emas! 'sudo usermod -aG lp cail' kerak.")
-        return False
-    except Exception as e:
-        logger.error(f"XP-58 ga faylni chiqarishda xato: {e}")
-        return False
+    logger.info(f"✅ XP-58 da muvaffaqiyatli chop etildi (#{oid})")
+    return True
 
 
 def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait", page_ranges: str = "") -> tuple[bool, str]:
@@ -522,12 +510,16 @@ def process_job(job: dict):
     try:
         download_url = f"{CLOUD_URL}/api/agent/download/{order_id}"
         logger.info(f"Fayl yuklab olinmoqda: {download_url}")
-        res = requests.get(download_url, timeout=30, stream=True)
+        res = requests.get(download_url, timeout=(15, 300), stream=True)
         if not res.ok:
             raise RuntimeError(f"Faylni yuklab bo'lmadi: status {res.status_code}")
+        total_dl = 0
         with open(tmp_file, "wb") as f:
-            for chunk in res.iter_content(chunk_size=8192):
-                f.write(chunk)
+            for chunk in res.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+                    total_dl += len(chunk)
+        logger.info(f"Fayl to'liq yuklandi ({total_dl / (1024*1024):.2f} MB): {tmp_file.name}")
     except Exception as e:
         logger.error(f"Fayl yuklab olishda xato: {e}")
         requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
