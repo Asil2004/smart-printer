@@ -72,10 +72,14 @@ if CORS:
 
 @app.after_request
 def add_cors_headers(response):
-    """Barcha so'rovlar (Netlify, Ngrok, Local) uchun to'liq CORS ruxsatlarini ta'minlaydi."""
+    """Barcha so'rovlar (Netlify, Ngrok, Local) uchun to'liq CORS ruxsatlarini ta'minlaydi va brauzer keshini tozalaydi."""
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, ngrok-skip-browser-warning, X-Requested-With, X-Admin-Token"
+    # Brauzer qotib qolishi va keshlanishini oldini olish
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     return response
 
 
@@ -544,7 +548,7 @@ def get_printers():
     global _agent_last_seen, _agent_printers
     if IS_CLOUD_SERVER:
         # Bulutda ishlayotgan bo'lsa: Raspberry Pi agentidan kelgan holatni ko'rsatadi
-        if time.time() - _agent_last_seen < 15 and _agent_printers:
+        if time.time() - _agent_last_seen < 60 and _agent_printers:
             printers = _agent_printers
         else:
             printers = []
