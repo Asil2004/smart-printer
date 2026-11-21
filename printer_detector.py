@@ -295,33 +295,8 @@ def detect_connected_printers() -> dict:
 
         cups_name = _match_by_cups_name(cups_printers, db)
 
-        # Termal printer uchun /dev/usb/lp* mavjudligi
-        thermal_dev = False
-        if ptype == "thermal":
-            import os
-            thermal_dev = os.path.exists("/dev/usb/lp0") or os.path.exists("/dev/usb/lp1")
-
-        # Status va xatoliklarni aniqlash
-        paper_out = False
-        paper_jam = False
-        status_reason = "Tayyor"
-
-        matching_cups = next((p for p in cups_printers if p["name"].lower() == cups_name.lower()), None)
-        if matching_cups:
-            if matching_cups.get("paper_out"):
-                paper_out = True
-                status_reason = "Qog'oz tugagan"
-            elif matching_cups.get("jam"):
-                paper_jam = True
-                status_reason = "Qog'oz tiqilgan"
-            elif matching_cups.get("error"):
-                status_reason = matching_cups.get("status_reason", "Xatolik")
-
         # FAQAT Pi3 ga jismonan ulangan bo'lsagina is_connected True bo'ladi!
-        if ptype == "thermal":
-            is_connected = usb_match or thermal_dev
-        else:
-            is_connected = usb_match
+        is_connected = usb_match
 
         ready = is_connected and not paper_out and not paper_jam
 

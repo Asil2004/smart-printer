@@ -57,10 +57,18 @@ POLL_INTERVAL = 2  # har 2 soniyada navbat tekshiriladi
 
 
 def get_thermal_device_port() -> str:
-    """Linux USB printer portini topadi (/dev/usb/lp0 va h.k.)."""
+    """Linux USB termal printer portini topadi (/dev/usb/lp0 va h.k.)."""
     ports = sorted(glob.glob("/dev/usb/lp*"))
-    if ports:
-        return ports[0]
+    for port in ports:
+        # Canon LBP printer portiga tasodifan yozib yubormaslik tekshiruvi
+        try:
+            cmd = ["udevadm", "info", "-q", "property", port]
+            out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+            if "ID_VENDOR_ID=04a9" in out or "04a9" in out.lower():
+                continue  # Bu Canon LBP lazer printeri, termal emas!
+        except Exception:
+            pass
+        return port
     return ""
 
 
@@ -77,16 +85,16 @@ def choose_active_printer() -> tuple[str, str]:
 
     try:
         st = detect_connected_printers()
-        # Agar Termal (XP-58) ulangan bo'lsa
-        if st.get("thermal", {}).get("connected") and st.get("thermal", {}).get("ready"):
-            return ("thermal", st["thermal"].get("cups_name") or "XP58")
         # Agar Laser (Canon) ulangan bo'lsa
         if st.get("laser_bw", {}).get("connected") and st.get("laser_bw", {}).get("ready"):
             return ("laser_bw", st["laser_bw"].get("cups_name") or "Canon-LBP3010")
+        # Agar Termal (XP-58) ulangan bo'lsa
+        if st.get("thermal", {}).get("connected") and st.get("thermal", {}).get("ready"):
+            return ("thermal", st["thermal"].get("cups_name") or "XP58")
     except Exception as e:
         logger.warning(f"Printer aniqlashda xato: {e}")
 
-    # Fallback: Agar /dev/usb/lp* mavjud bo'lsa demak termal printer
+    # Fallback: agar faqat haqiqiy termal port topilsa
     if get_thermal_device_port():
         return ("thermal", "XP58")
 
