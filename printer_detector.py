@@ -295,6 +295,22 @@ def detect_connected_printers() -> dict:
 
         cups_name = _match_by_cups_name(cups_printers, db)
 
+        # Status va xatoliklarni aniqlash
+        paper_out = False
+        paper_jam = False
+        status_reason = "Tayyor"
+
+        matching_cups = next((p for p in cups_printers if p["name"].lower() == cups_name.lower()), None)
+        if matching_cups:
+            if matching_cups.get("paper_out"):
+                paper_out = True
+                status_reason = "Qog'oz tugagan"
+            elif matching_cups.get("jam"):
+                paper_jam = True
+                status_reason = "Qog'oz tiqilgan"
+            elif matching_cups.get("error"):
+                status_reason = matching_cups.get("status_reason", "Xatolik")
+
         # FAQAT Pi3 ga jismonan ulangan bo'lsagina is_connected True bo'ladi!
         is_connected = usb_match
 
