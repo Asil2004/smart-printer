@@ -469,8 +469,41 @@ def cleanup_stale_files():
         pass
 
 
+# Qayta ishlangan buyurtmalar kesh (bitta buyurtmani 2 marta chop etmaslik uchun)
+PROCESSED_JOBS = set()
+
+
+def ensure_single_instance():
+    """pi_agent.py bir vaqtda faqat 1 ta nusxada ishlashini ta'minlaydi."""
+    lock_file_path = Path.home() / ".smart_printchi_agent.lock"
+    try:
+        import fcntl
+        global lock_fd
+        lock_fd = open(lock_file_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except Exception:
+        logger.warning("⚠️ Boshqa pi_agent.py jarayoni topildi! Eski nusxalar to'xtatilmoqda...")
+        my_pid = os.getpid()
+        subprocess.run(f"pkill -9 -f 'python.*pi_agent.py' --inverse --pid {my_pid}", shell=True, stderr=subprocess.DEVNULL)
+        time.sleep(1)
+        try:
+            lock_fd = open(lock_file_path, "w")
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except Exception:
+            pass
+
+
 def process_job(job: dict):
     order_id = job["id"]
+    if order_id in PROCESSED_JOBS:
+        logger.info(f"Buyurtma #{order_id} allaqachon bajarilgan, o'tkazib yuborildi.")
+        return
+
+    PROCESSED_JOBS.add(order_id)
+    # Kesh hajmini cheklash (oxirgi 100 ta ID)
+    if len(PROCESSED_JOBS) > 100:
+        PROCESSED_JOBS.pop()
+
     logger.info(f"Yangi buyurtma qabul qilindi: #{order_id} ({job.get('filename')})")
 
     # 1. Holatni "PRINTING" ga o'tkazish
@@ -527,11 +560,6 @@ def process_job(job: dict):
         requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
     else:
         logger.error(f"Canon muvaffaqiyatsiz bo'ldi: {note}")
-        # DASTURCHI FALLBACK: Agar Canon to'xtab qolsa va XP-58 ulangan bo'lsa, faylni XP-58 ga zichlab chiqaramiz!
-        if find_xp58_port():
-            logger.info("⚡ Dasturchi holati: Canon to'xtadi. Fayl XP-58 ga zichlab chiqarilmoqda...")
-            print_file_to_xp58(tmp_file, order=job)
-
         requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
                       json={"status": "FAILED", "error": note}, timeout=5)
 
@@ -591,6 +619,7 @@ def main():
     xp_port = find_xp58_port()
     logger.info(f"  Dasturchi (POS) : {'XP-58 (' + xp_port + ')' if xp_port else 'Ulanmagan'}")
     logger.info("==================================================")
+    ensure_single_instance()
     cleanup_stale_files()
 
     while True:
