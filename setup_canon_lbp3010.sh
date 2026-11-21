@@ -121,10 +121,14 @@ ok "   manzil: $URI"
 
 # ── 5. Printerni CUPS ga qo'shish ────────────────────────────────────────────
 ok "[5/6] CUPS ga '$PRINTER_NAME' qo'shilmoqda..."
+cancel -a 2>/dev/null || true
+rmmod usblp 2>/dev/null || true
 lpadmin -x "$PRINTER_NAME" 2>/dev/null || true
 lpadmin -p "$PRINTER_NAME" -E -v "$URI" -P "$PPD_DIR/$PPD_NAME" \
     -D "Canon LBP3010 (Smart Printchi)" -L "Kiosk" \
     -o PageSize=A4 -o printer-error-policy=retry-job
+systemctl restart cups 2>/dev/null || true
+sleep 1
 cupsenable "$PRINTER_NAME"
 cupsaccept "$PRINTER_NAME"
 lpoptions -d "$PRINTER_NAME" >/dev/null

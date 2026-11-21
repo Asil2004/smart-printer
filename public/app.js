@@ -212,18 +212,34 @@
     const txt = $('printerStatusText');
     if (S.online === null) { el.className = 'status'; txt.textContent = 'Printer tekshirilmoqda…'; return; }
     if (!S.online) { el.className = 'status err'; txt.textContent = 'Server bilan aloqa yo‘q'; return; }
-    const main = S.printers.find((p) => p.type === 'laser_bw' && p.connected) || S.printers.find((p) => p.connected) || null;
-    if (S.printerReady && main && main.connected) {
+
+    const canon = S.printers.find((p) => p.type === 'laser_bw' && p.connected);
+    const thermal = S.printers.find((p) => p.type === 'thermal' && p.connected);
+
+    if (canon && thermal) {
       el.className = 'status ok';
-      txt.textContent = `${main.label || 'Canon LBP'} tayyor · navbat yo‘q`;
-    }
-    else if (main && main.connected) {
+      txt.textContent = 'Canon LBP3010 (Lazer) va XP-58 (Chek) tayyor';
+    } else if (canon && canon.ready) {
+      el.className = 'status ok';
+      txt.textContent = `${canon.label || 'Canon LBP3010'} tayyor · navbat yo‘q`;
+    } else if (thermal && thermal.ready) {
+      el.className = 'status ok';
+      txt.textContent = `${thermal.label || 'XP-58 Chek (Dev)'} tayyor`;
+    } else if (canon) {
       el.className = 'status warn';
-      txt.textContent = main.status_reason || 'Printer band';
-    }
-    else {
-      el.className = 'status err';
-      txt.textContent = 'Printer ulanmagan';
+      txt.textContent = canon.status_reason || 'Canon band';
+    } else if (thermal) {
+      el.className = 'status warn';
+      txt.textContent = thermal.status_reason || 'XP-58 band';
+    } else {
+      const any = S.printers.find((p) => p.connected);
+      if (any) {
+        el.className = any.ready ? 'status ok' : 'status warn';
+        txt.textContent = any.label || 'Printer tayyor';
+      } else {
+        el.className = 'status err';
+        txt.textContent = 'Printer ulanmagan';
+      }
     }
   }
 
@@ -284,9 +300,39 @@
     return { patch, done, wantsPay };
   }
 
+  async function triggerDevTest(target = 'thermal') {
+    toast(`${target === 'thermal' ? 'XP-58 Chek' : 'Canon LBP'} test buyrug‘i yuborilmoqda...`);
+    try {
+      const { ok, data } = await getJSON('/api/dev/test_print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target })
+      });
+      if (ok && data.success) {
+        toast(`✅ #${data.order_id} ${target} sinov navbatga qo'yildi!`, 'ok');
+      } else {
+        toast('Test yuborilmadi', 'err');
+      }
+    } catch (e) {
+      toast('Server bilan aloqa yo‘q', 'err');
+    }
+  }
+
   function onCommand(text) {
     text = text.trim();
     if (!text) return;
+
+    // Dasturchi buyruqlari
+    const lower = text.toLowerCase();
+    if (lower === 'test' || lower === 'sinov' || lower === 'xp58' || lower === 'chek' || lower === 'dev') {
+      triggerDevTest('thermal');
+      return;
+    }
+    if (lower === 'canon' || lower === 'lazer') {
+      triggerDevTest('laser_bw');
+      return;
+    }
+
     if (!S.file) {
       update({ userMsg: '' }, 'Avval faylni yuboring — pastdagi qisqich tugmasi yoki «Faylni tanlang».');
       toast('Avval faylni tanlang');
@@ -469,6 +515,7 @@
     $('payCancel').focus();
 
     const fd = new FormData();
+    fd.append('printer_type', S.printerType || 'laser_bw');
     if (src.kind === 'template') {
       fd.append('source', 'template');
       fd.append('template_id', src.template.id);

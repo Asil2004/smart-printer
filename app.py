@@ -815,8 +815,10 @@ def create_pending_order():
     source = form.get("source", "file")
     copies = _int_form(form, "copies", 1, 1, 10)
     color_mode = "color" if form.get("color_mode") == "color" else "gray"
+    printer_type = form.get("printer_type", "laser_bw")
     order_id = uuid.uuid4().hex[:6].upper()
     order = {"id": order_id, "kind": source, "copies": copies, "color_mode": color_mode,
+             "printer_type": printer_type,
              "orientation": "landscape" if form.get("orientation") == "landscape" else "portrait",
              "duplex": "two-sided" if form.get("duplex") == "two-sided" else "one-sided",
              "page_ranges": (form.get("page_ranges") or "").strip()[:50],
@@ -1318,12 +1320,49 @@ def agent_get_queue():
                 "id": o["id"],
                 "filename": o["filename"],
                 "copies": o.get("copies", 1),
+                "pages": o.get("pages", 1),
+                "amount": o.get("amount", 0),
                 "color_mode": o.get("color_mode", "gray"),
+                "printer_type": o.get("printer_type", "laser_bw"),
                 "orientation": o.get("orientation", "portrait"),
                 "duplex": o.get("duplex", "one-sided"),
                 "page_ranges": o.get("page_ranges", ""),
             })
     return jsonify({"success": True, "jobs": jobs})
+
+
+@app.route("/api/dev/test_print", methods=["POST"])
+def dev_test_print():
+    """Dasturchi testi: To'lovsiz darhol test cheki/hujjatini navbatga qo'yadi."""
+    data = request.get_json(silent=True) or {}
+    target = data.get("target", "thermal")  # "thermal" (XP-58) yoki "laser_bw" (Canon)
+    order_id = uuid.uuid4().hex[:6].upper()
+
+    # Dasturchi test buyurtmasi
+    test_file = UPLOAD_FOLDER / f"dev_test_{order_id}.txt"
+    test_file.write_text(f"SMART PRINTCHI TEST - {target}\nID: #{order_id}\nAuthor: Ravshanov Muhammad Ali", encoding="utf-8")
+
+    order = {
+        "id": order_id,
+        "kind": "dev_test",
+        "filename": f"Sinov_{target}.receipt" if target == "thermal" else "Sinov_Canon.pdf",
+        "saved_path": str(test_file),
+        "ready_file": str(test_file),
+        "copies": 1,
+        "pages": 1,
+        "amount": 0,
+        "color_mode": "gray",
+        "printer_type": target,
+        "orientation": "portrait",
+        "duplex": "one-sided",
+        "page_ranges": "",
+        "status": "PAID",  # Darhol Raspberry Pi ga beriladi
+        "created_at": time.time(),
+        "updated_at": time.time(),
+    }
+    payments.add_order(order)
+    logger.info(f"Dasturchi sinovi navbatga qo'yildi: #{order_id} ({target})")
+    return jsonify({"success": True, "order_id": order_id, "message": f"{target} uchun test navbatga qo'yildi!"})
 
 
 @app.route("/api/agent/download/<order_id>", methods=["GET"])
