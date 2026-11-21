@@ -34,17 +34,20 @@ echo -e "${YELLOW}[1/7] Navbatdagi qotgan ishlarni tozalash...${NC}"
 cancel -a 2>/dev/null || true
 rm -f /tmp/printchi_* 2>/dev/null || true
 
-# 2. CUPS USB Quirks faylini sozlash (unidir va no-reattach)
-echo -e "${YELLOW}[2/7] CUPS USB quirks sozlanmoqda (unidir + no-reattach)...${NC}"
+# 2. CUPS USB Quirks faylini sozlash (no-reattach, unidir siz - chunki rastertocapt 6 bayt javob kutadi!)
+echo -e "${YELLOW}[2/7] CUPS USB quirks sozlanmoqda (no-reattach)...${NC}"
 for QFILE in "/usr/share/cups/usb/org.cups.usb-quirks" "/usr/share/cups/quirks/org.cups.usb-quirks"; do
     mkdir -p "$(dirname "$QFILE")"
     touch "$QFILE"
     # Eski Canon qatorlarini tozalash
     sed -i '/0x04a9 0x26da/d' "$QFILE" 2>/dev/null || true
-    # Yangi aniq qoidani qo'shish
-    echo "0x04a9 0x26da no-reattach unidir" >> "$QFILE"
+    # Faqat no-reattach (unidir EMAS, chunki rastertocapt backchannel kutadi)
+    echo "0x04a9 0x26da no-reattach" >> "$QFILE"
     echo -e "${GREEN}   Quirk qo'shildi: $QFILE${NC}"
 done
+
+# ipp-usb servisini to'xtatish (agar bo'lsa, USB portni qulflab oladi)
+systemctl stop ipp-usb 2>/dev/null || true
 
 # 3. usblp ni Canon dan ajratish (XP-58 uchun usblp saqlanadi!)
 echo -e "${YELLOW}[3/7] Kernel 'usblp' modulini Canon LBP3010 dan ajratish...${NC}"
@@ -108,7 +111,8 @@ fi
 
 lpadmin -p "$PRINTER_NAME" -v "$URI" -P "/etc/cups/ppd/${PRINTER_NAME}.ppd" \
     -o PageSize=A4 -o cupsManualCopies=True \
-    -o usb-unidir-default=true -o usb-no-reattach-default=true \
+    -R usb-unidir-default \
+    -o usb-no-reattach-default=true \
     -o printer-error-policy=retry-job
 
 # 6. CUPS xizmatini qayta ishga tushirish
