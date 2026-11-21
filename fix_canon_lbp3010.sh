@@ -107,7 +107,9 @@ if [ -z "$URI" ]; then
 fi
 
 lpadmin -p "$PRINTER_NAME" -v "$URI" -P "/etc/cups/ppd/${PRINTER_NAME}.ppd" \
-    -o PageSize=A4 -o cupsManualCopies=True -o printer-error-policy=retry-job
+    -o PageSize=A4 -o cupsManualCopies=True \
+    -o usb-unidir-default=true -o usb-no-reattach-default=true \
+    -o printer-error-policy=retry-job
 
 # 6. CUPS xizmatini qayta ishga tushirish
 echo -e "${YELLOW}[6/7] CUPS servisi qayta ishga tushirilmoqda...${NC}"
