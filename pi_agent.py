@@ -16,6 +16,7 @@ import os
 import sys
 import glob
 import time
+import uuid
 import shutil
 import logging
 import tempfile
@@ -187,11 +188,13 @@ def image_to_escpos(image) -> bytes:
 
 
 def pdf_to_images(pdf_path: Path) -> list:
-    """PDF sahifalarini PIL Image ro'yxatiga aylantirish (pdftoppm yordamida)."""
+    """PDF sahifalarini PIL Image ro'yxatiga aylantirish (pdftoppm yoki ghostscript yordamida)."""
     if Image is None:
         return []
     images = []
-    tmp_prefix = f"/tmp/thermal_pdf_{int(time.time())}"
+    tmp_prefix = f"/tmp/thermal_pdf_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+
+    # 1. pdftoppm orqali sinab ko'rish
     try:
         cmd = ["pdftoppm", "-png", "-r", "150", str(pdf_path), tmp_prefix]
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -203,8 +206,41 @@ def pdf_to_images(pdf_path: Path) -> list:
                     os.remove(f)
                 except Exception:
                     pass
+            if images:
+                return images
     except Exception as e:
-        logger.warning(f"pdftoppm xatosi: {e}")
+        logger.debug(f"pdftoppm ishlamadi: {e}")
+
+    # 2. Ghostscript (gs) orqali sinab ko'rish (Linux/Raspberry Pi da doim mavjud)
+    try:
+        gs_cmd = [
+            "gs", "-sDEVICE=png16m", "-r150", "-dNOPAUSE", "-dBATCH", "-dSAFER",
+            f"-sOutputFile={tmp_prefix}-%03d.png", str(pdf_path)
+        ]
+        res = subprocess.run(gs_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0:
+            for f in sorted(glob.glob(f"{tmp_prefix}-*.png")):
+                try:
+                    with Image.open(f) as img:
+                        images.append(img.copy())
+                    os.remove(f)
+                except Exception:
+                    pass
+            if images:
+                return images
+    except Exception as e:
+        logger.debug(f"gs xatosi: {e}")
+
+    # 3. pypdfium2 / pdf2image orqali
+    try:
+        import pypdfium2 as pdfium
+        pdf = pdfium.PdfDocument(str(pdf_path))
+        for page in pdf:
+            images.append(page.render(scale=1.5).to_pil())
+        if images:
+            return images
+    except Exception:
+        pass
 
     return images
 
@@ -246,18 +282,33 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     fname = order.get("filename", file_path.name)
     copies = order.get("copies", 1)
 
+    # 1. Haqiqiy formatni aniqlash (fayl ichidagi magic bytes orqali)
+    is_pdf = False
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(16)
+            if b"%PDF" in header:
+                is_pdf = True
+    except Exception:
+        pass
+
     images = []
-    ext = file_path.suffix.lower()
-    if ext in [".png", ".jpg", ".jpeg", ".bmp", ".webp"]:
-        if Image:
-            try:
-                with Image.open(file_path) as img:
-                    images.append(img.copy())
-            except Exception as e:
-                logger.error(f"Rasmni ochishda xato: {e}")
-    elif ext == ".pdf":
+
+    # 2. Agar fayl PDF bo'lsa (yoki bulut serveri uni PDF ga aylantirib yuborgan bo'lsa)
+    if is_pdf or file_path.suffix.lower() == ".pdf":
+        logger.info(f"Fayl PDF deb aniqlandi (#{oid}), sahifalar tasvirga aylantirilmoqda...")
         images = pdf_to_images(file_path)
-    elif ext in [".txt", ".receipt"]:
+
+    # 3. Agar PDF bo'lmasa yoki PDF dan rasm olinmagan bo'lsa, oddiy tasvir deb ochib ko'rish
+    if not images and Image:
+        try:
+            with Image.open(file_path) as img:
+                images.append(img.copy())
+        except Exception:
+            pass
+
+    # 4. Agar matn bo'lsa
+    if not images and file_path.suffix.lower() in [".txt", ".receipt"]:
         try:
             txt = file_path.read_text(encoding="utf-8", errors="ignore")
             t_img = text_to_image(txt)
@@ -298,6 +349,22 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     data.extend(BOLD_ON + "CHOP ETILDI [OK]\n".encode("utf-8") + BOLD_OFF)
     data.extend("Loyiha: Ravshanov Muhammad Ali\n".encode("utf-8"))
     data.extend(f"Sana: {now_str}\n".encode("utf-8"))
+    data.extend("--------------------------------\n".encode("utf-8"))
+    data.extend(FEED_CUT)
+
+    try:
+        with open(port, "wb") as f:
+            for _ in range(max(1, min(copies, 5))):
+                f.write(data)
+                f.flush()
+        logger.info(f"✅ XP-58 da fayl ({len(images)} sahifa) muvaffaqiyatli zichlab chop etildi (#{oid})")
+        return True
+    except PermissionError:
+        logger.error("XP-58 portiga ruxsat yetarli emas! 'sudo usermod -aG lp cail' kerak.")
+        return False
+    except Exception as e:
+        logger.error(f"XP-58 ga faylni chiqarishda xato: {e}")
+        return False
     data.extend("--------------------------------\n".encode("utf-8"))
     data.extend(FEED_CUT)
 
