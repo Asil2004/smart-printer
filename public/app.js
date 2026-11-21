@@ -311,14 +311,6 @@
     if (!EXTS.includes(ext)) { toast('Bu format qabul qilinmaydi. PDF, DOCX, JPG yoki PNG yuboring.', 'err'); return; }
     if (file.size > MAX_BYTES) { toast('Fayl 64 MB dan katta.', 'err'); return; }
     S.view = 'print';
-
-    // Rasm har doim 1 bet — serverga so'rov kutmasdan 0 soniyada narxni hisoblaymiz
-    if (['png', 'jpg', 'jpeg'].includes(ext)) {
-      update({ file, fileExt: ext, pages: 1, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
-      speak('1 bet topildi.');
-      return;
-    }
-
     update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
     try {
       const fd = new FormData();
@@ -526,11 +518,16 @@
     if (!S.order) return;
     $('payClaim').disabled = true;
     try {
-      await getJSON(`/api/order/${S.order.id}/claim`, {
+      const { status, data } = await getJSON(`/api/order/${S.order.id}/claim`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ method: S.payMethod }),
       });
+      if (status === 404 || (data && data.status === 'NOT_FOUND')) {
+        $('payClaim').disabled = false;
+        setPayStatus('err', 'Buyurtma eskirgan. Bekor qilib qayta yuboring.');
+        return;
+      }
       setPayStatus('info', 'To‘lov tekshirilmoqda… biroz kuting');
       speak('Rahmat. To‘lov tekshirilmoqda, biroz kuting.');
     } catch (e) {
@@ -551,20 +548,8 @@
   async function pollOnce() {
     if (!S.order) return stopPolling();
     let data;
-    try {
-      const res = await getJSON(`/api/order/status/${S.order.id}`);
-      data = res.data;
-    } catch (e) {
-      return;
-    }
-    if (!data || !data.success) {
-      if (data && data.status === 'NOT_FOUND') {
-        stopPolling();
-        setPayStatus('err', 'Buyurtma topilmadi yoki eskirgan. Qaytadan urinib ko‘ring.');
-        $('payClaim').disabled = false;
-      }
-      return;
-    }
+    try { ({ data } = await getJSON(`/api/order/status/${S.order.id}`)); } catch (e) { return; }
+    if (!data || !data.success) return;
     const st = data.status;
     if (st === S.lastStatus && st !== 'PRINTING') return;
     S.lastStatus = st;

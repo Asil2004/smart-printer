@@ -95,7 +95,16 @@ def save_state():
 
 
 def get_order(order_id: str):
-    return orders.get((order_id or "").strip().upper())
+    oid = (order_id or "").strip().upper()
+    if not oid:
+        return None
+    with _lock:
+        if oid in orders:
+            return orders[oid]
+    # Agar boshqa worker yozgan bo'lsa yoki server qayta yuklangan bo'lsa
+    load_state()
+    with _lock:
+        return orders.get(oid)
 
 
 def add_order(order: dict):
@@ -305,3 +314,11 @@ def payme_auth_ok(req) -> bool:
 def payme_error(req_id, code: int, uz: str, data=None):
     return {"jsonrpc": "2.0", "id": req_id,
             "error": {"code": code, "message": {"uz": uz, "ru": uz, "en": uz}, "data": data}}
+
+
+# Modul import qilingan zahoti mavjud buyurtmalarni o'qiymiz
+try:
+    load_state()
+except Exception:
+    pass
+

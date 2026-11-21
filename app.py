@@ -312,24 +312,21 @@ def inspect_file():
     if not file or not allowed_file(file.filename):
         return jsonify({"success": False, "error": "Noto'g'ri fayl formati"}), 400
 
-    ext = file.filename.rsplit(".", 1)[1].lower() if "." in file.filename else ""
-    # Rasm har doim 1 sahifa — diskka saqlamasdan darhol javob beramiz (0.001 soniya)
-    if ext in ("png", "jpg", "jpeg", "bmp", "webp"):
-        return jsonify({"success": True, "page_count": 1})
-
     temp_id = str(uuid.uuid4())[:8]
+    ext = file.filename.rsplit(".", 1)[1].lower()
     temp_path = UPLOAD_FOLDER / f"inspect_{temp_id}.{ext}"
     file.save(str(temp_path))
 
     page_count = 1
     try:
+        # Buyurtma narxi bilan bir xil usulda sanaymiz (DOCX → PDF aylantirib)
         page_count = _count_file_pages(temp_path)
     except Exception as err:
         logger.error(f"Faylni tahlil qilishda xatolik: {err}")
     finally:
         temp_path.unlink(missing_ok=True)
         if ext == "docx":
-            temp_path.with_suffix(".pdf").unlink(missing_ok=True)
+            temp_path.with_suffix(".pdf").unlink(missing_ok=True)  # konvertatsiya nusxasi
 
     return jsonify({
         "success": True,
@@ -589,30 +586,25 @@ def get_recent_orders():
 # BUYURTMA VA TO'LOV TASDIG'I (payments.py bilan)
 # ═══════════════════════════════════════════════════════════
 def _count_file_pages(path: Path) -> int:
-    """PDF / DOCX / rasm sahifalar sonini tezkor aniqlaydi (narx uchun)."""
+    """PDF / DOCX / rasm sahifalar sonini aniqlaydi (narx uchun)."""
     ext = path.suffix.lower()
-    if ext in [".png", ".jpg", ".jpeg", ".bmp", ".webp"]:
-        return 1
     if ext == ".pdf":
         return get_pdf_page_count(path)
     if ext == ".docx":
-        # 1-usul (0.001 soniya): docx ichidagi docProps/app.xml dan sahifa sonini to'g'ridan-to'g'ri o'qish
         try:
-            import zipfile
-            import xml.etree.ElementTree as ET
-            with zipfile.ZipFile(str(path), "r") as z:
+            return get_pdf_page_count(convert_docx_to_pdf(path))
+        except Exception as e:
+            logger.warning(f"DOCX ni PDF ga aylantirib sanab bo'lmadi, app.xml ishlatiladi: {e}")
+        import zipfile
+        import xml.etree.ElementTree as ET
+        try:
+            with zipfile.ZipFile(path, "r") as z:
                 if "docProps/app.xml" in z.namelist():
                     for elem in ET.fromstring(z.read("docProps/app.xml")).iter():
                         if elem.tag.endswith("Pages") and elem.text:
                             return max(1, int(elem.text))
-        except Exception:
-            pass
-        # 2-usul: agar XML bo'lmasa, PDF ga aylantirish
-        try:
-            return get_pdf_page_count(convert_docx_to_pdf(path))
         except Exception as e:
-            logger.warning(f"DOCX sahifalarini aniqlashda xatolik: {e}")
-            return 1
+            logger.warning(f"DOCX sahifalarini o'qishda xatolik: {e}")
     return 1
 
 
@@ -1084,7 +1076,13 @@ def _resume_interrupted_orders():
             _start_print(o)
 
 
+_workers_started = False
+
 def start_background_workers():
+    global _workers_started
+    if _workers_started:
+        return
+    _workers_started = True
     payments.load_state()
     if payments.DEMO_AUTO_CONFIRM:
         logger.warning("DEMO_AUTO_CONFIRM=1: to'lovlar AVTOMATIK tasdiqlanadi — faqat lokal demo uchun!")
@@ -1096,6 +1094,10 @@ def start_background_workers():
     if payments.REQUIRE_PAYMENT and not (payments.ADMIN_TOKEN or payments.telegram_enabled()):
         logger.error("DIQQAT: REQUIRE_PAYMENT_VERIFICATION=true, lekin ADMIN_TOKEN ham, Telegram ham yo'q — "
                      "hech bir buyurtmani tasdiqlab bo'lmaydi!")
+
+
+# Modul yuklanganda (Gunicorn da ham) fon ishchilari ishga tushadi
+start_background_workers()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1160,9 +1162,9 @@ def admin_upload_template():
     category    = request.form.get("category", "other").strip()
     color       = request.form.get("color", "false").lower() == "true"
     try:
-        price   = int(request.form.get("price_per_page", PRICE_PER_PAGE_COLOR if color else PRICE_PER_PAGE_BW))
+        price   = int(request.form.get("price_per_page", 1500 if color else 500))
     except ValueError:
-        price   = PRICE_PER_PAGE_COLOR if color else PRICE_PER_PAGE_BW
+        price   = 500
 
     # Fayl nomini xavfsiz qilish
     safe_name  = secure_filename(f.filename)
@@ -1259,7 +1261,7 @@ def print_template():
         return jsonify({"success": False, "message": routing.get("reason")}), 503
 
     printer      = routing["cups_name"]
-    total_price  = template.get("price_per_page", PRICE_PER_PAGE_BW) * copies * template.get("pages", 1)
+    total_price  = template.get("price_per_page", 500) * copies * template.get("pages", 1)
 
     # To'lov ma'lumotlari
     payment_method = data.get("payment_method", "card")

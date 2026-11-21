@@ -28,5 +28,5 @@ ENV PYTHONUNBUFFERED=1
 ENV IS_CLOUD_SERVER=1
 ENV DEMO_AUTO_CONFIRM=1
 
-# Gunicorn bilan yuqori tezlikda ishga tushirish (2 ta parallel ishchi oqim)
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "120", "app:app"]
+# Gunicorn bilan yuqori tezlikda ishga tushirish (1 worker, 8 threads — barcha oqimlar bir xil xotirani ko'radi)
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "120", "app:app"]

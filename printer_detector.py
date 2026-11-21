@@ -44,17 +44,11 @@ KNOWN_PRINTER_DB = [
         "label": "Termal Chek (XP-58)",
         "usb_ids": [
             ("0483", "070b"),  # STMicroelectronics (XP-58)
-            ("0483", "5743"),  # XP-58IIH / POS-58
-            ("0483", "5720"),  # Xprinter Thermal
             ("0416", "5011"),  # Winbond POS58
             ("1fc9", "2016"),  # NXP POS58
             ("0471", "0055"),  # Philips POS
-            ("0fe6", "811e"),  # ICS POS58
-            ("6868", "0200"),  # Zhuhai POS58
-            ("1a86", "7584"),  # QinHeng CH34x USB printer
-            ("067b", "2305"),  # Prolific USB printer
         ],
-        "cups_name_hints": ["XP-58", "XP58", "POS", "Thermal", "ZJ-58", "Xprinter", "58mm"],
+        "cups_name_hints": ["XP-58", "XP58", "POS", "Thermal", "ZJ-58"],
         "media": "Roll58",
         "color": False,
     },
@@ -311,9 +305,8 @@ def detect_connected_printers() -> dict:
             elif matching_cups.get("error"):
                 status_reason = matching_cups.get("status_reason", "Xatolik")
 
-        # FAQAT Pi3 ga jismonan ulangan bo'lsagina is_connected True bo'ladi!
+        # FAQAT USB orqali apparat jismonan ulangan bo'lsagina is_connected True bo'ladi
         is_connected = usb_match
-
         ready = is_connected and not paper_out and not paper_jam
 
         result[ptype] = {
@@ -370,34 +363,19 @@ def get_printer_for_job(color_mode: str = "gray", job_type: str = "document") ->
         return {"found": False, "reason": "Rangli printer ulanmagan"}
 
     # 2. Oq-qora hujjat / har qanday fayl → Canon LBP 3010 Lazer printer
-    p_laser = printers.get("laser_bw", {})
-    if p_laser.get("connected"):
-        if not p_laser.get("ready"):
-            return {"found": False, "reason": f"Canon LBP printerida muammo: {p_laser.get('status_reason')}"}
+    p = printers.get("laser_bw", {})
+    if p.get("connected"):
+        if not p.get("ready"):
+            return {"found": False, "reason": f"Canon LBP printerida muammo: {p.get('status_reason')}"}
         return {
-            "cups_name": p_laser["cups_name"] or "Canon-LBP3010",
+            "cups_name": p["cups_name"] or "Canon-LBP3010",
             "type": "laser_bw",
-            "media": p_laser["media"],
+            "media": p["media"],
             "found": True,
             "reason": "Hujjat → Canon LBP lazer printer"
         }
 
-    # 3. Agar faqat Termal Chek (XP-58) ulangan bo'lsa
-    p_thermal = printers.get("thermal", {})
-    if p_thermal.get("connected"):
-        if not p_thermal.get("ready"):
-            return {"found": False, "reason": f"Termal printerda muammo: {p_thermal.get('status_reason')}"}
-        return {
-            "cups_name": p_thermal["cups_name"] or "XP58",
-            "type": "thermal",
-            "media": p_thermal["media"],
-            "found": True,
-            "reason": "Termal printer (XP-58) → Chek/Lenta"
-        }
-
-    return {"found": False, "reason": "Printer ulanmagan yoki o'chirilgan"}
-
-    return {"found": False, "reason": "Noma'lum holat"}
+    return {"found": False, "reason": "Canon LBP printeri ulanmagan yoki o'chirilgan"}
 
 
 def get_all_printer_status(only_connected: bool = True) -> list[dict]:
