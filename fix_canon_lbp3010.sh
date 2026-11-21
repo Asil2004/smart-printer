@@ -33,6 +33,7 @@ CANON_PID="26da"
 echo -e "${YELLOW}[1/7] Navbatdagi qotgan ishlarni tozalash...${NC}"
 cancel -a 2>/dev/null || true
 rm -f /tmp/printchi_* 2>/dev/null || true
+which pdftoppm >/dev/null 2>&1 || apt-get install -y poppler-utils 2>/dev/null || true
 
 # 2. CUPS USB Quirks faylini sozlash (no-reattach, unidir siz - chunki rastertocapt 6 bayt javob kutadi!)
 echo -e "${YELLOW}[2/7] CUPS USB quirks sozlanmoqda (no-reattach)...${NC}"

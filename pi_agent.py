@@ -30,6 +30,18 @@ except ImportError:
     import requests
 
 try:
+    from PIL import Image, ImageDraw, ImageOps, ImageFont
+except ImportError:
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pillow"])
+        from PIL import Image, ImageDraw, ImageOps, ImageFont
+    except Exception:
+        Image = None
+        ImageDraw = None
+        ImageOps = None
+        ImageFont = None
+
+try:
     from printer_detector import get_all_printer_status, detect_connected_printers
 except Exception:
     def get_all_printer_status():
@@ -135,6 +147,175 @@ def print_to_xp58(order: dict, note: str = "") -> bool:
         return False
 
 
+def image_to_escpos(image) -> bytes:
+    """
+    PIL Image obyektini XP-58 (384px) uchun ESC/POS raster komandalariga ('GS v 0') aylantiradi.
+    Har qanday rasm yoki PDF betini 384px ga zichlab, Floyd-Steinberg dithering bilan monoxrom qiladi.
+    """
+    if Image is None:
+        return b""
+    w, h = image.size
+    if w != 384:
+        new_w = 384
+        new_h = max(1, int(h * (384.0 / w)))
+        image = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    bw = image.convert("1")
+
+    w, h = bw.size
+    row_bytes = (w + 7) // 8  # 384 // 8 = 48 bayt
+    raw = bw.tobytes()
+    inverted = bytes([~b & 0xFF for b in raw])
+
+    CHUNK_LINES = 256
+    buf = bytearray()
+    for start_y in range(0, h, CHUNK_LINES):
+        chunk_h = min(CHUNK_LINES, h - start_y)
+        chunk_start = start_y * row_bytes
+        chunk_end = (start_y + chunk_h) * row_bytes
+        chunk_data = inverted[chunk_start:chunk_end]
+
+        # GS v 0 0 xL xH yL yH
+        buf.extend(b"\x1d\x76\x30\x00")
+        buf.extend(bytes([row_bytes & 0xFF, (row_bytes >> 8) & 0xFF]))
+        buf.extend(bytes([chunk_h & 0xFF, (chunk_h >> 8) & 0xFF]))
+        buf.extend(chunk_data)
+
+    return bytes(buf)
+
+
+def pdf_to_images(pdf_path: Path) -> list:
+    """PDF sahifalarini PIL Image ro'yxatiga aylantirish (pdftoppm yordamida)."""
+    if Image is None:
+        return []
+    images = []
+    tmp_prefix = f"/tmp/thermal_pdf_{int(time.time())}"
+    try:
+        cmd = ["pdftoppm", "-png", "-r", "150", str(pdf_path), tmp_prefix]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0:
+            for f in sorted(glob.glob(f"{tmp_prefix}-*.png")):
+                try:
+                    with Image.open(f) as img:
+                        images.append(img.copy())
+                    os.remove(f)
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"pdftoppm xatosi: {e}")
+
+    return images
+
+
+def text_to_image(text: str):
+    """Oddiy matnni 384px kenglikdagi chiroyli rasmga aylantirish."""
+    if Image is None or ImageDraw is None:
+        return None
+    lines = []
+    for raw_line in text.split("\n"):
+        line = raw_line.rstrip()
+        while len(line) > 30:
+            lines.append(line[:30])
+            line = line[30:]
+        lines.append(line)
+
+    line_h = 24
+    img_h = max(60, len(lines) * line_h + 20)
+    img = Image.new("RGB", (384, img_h), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    y = 10
+    for l in lines:
+        d.text((10, y), l, fill=(0, 0, 0))
+        y += line_h
+    return img
+
+
+def print_file_to_xp58(file_path: Path, order: dict) -> bool:
+    """
+    Faylni 384px (58mm termal) lentaga zichlab (scale/compress) to'liq chop etadi.
+    PDF, Rasm (.jpg, .png) va Matn fayllarini qo'llab-quvvatlaydi.
+    """
+    port = find_xp58_port()
+    if not port:
+        logger.warning("XP-58 porti topilmadi (/dev/usb/lp* yo'q)")
+        return False
+
+    oid = order.get("id", "TEST")
+    fname = order.get("filename", file_path.name)
+    copies = order.get("copies", 1)
+
+    images = []
+    ext = file_path.suffix.lower()
+    if ext in [".png", ".jpg", ".jpeg", ".bmp", ".webp"]:
+        if Image:
+            try:
+                with Image.open(file_path) as img:
+                    images.append(img.copy())
+            except Exception as e:
+                logger.error(f"Rasmni ochishda xato: {e}")
+    elif ext == ".pdf":
+        images = pdf_to_images(file_path)
+    elif ext in [".txt", ".receipt"]:
+        try:
+            txt = file_path.read_text(encoding="utf-8", errors="ignore")
+            t_img = text_to_image(txt)
+            if t_img:
+                images.append(t_img)
+        except Exception:
+            pass
+
+    # Agar rasmlarga aylantirib bo'lmasa, standart chek chiqariladi
+    if not images:
+        logger.warning(f"Fayl tasvirga aylantirilmadi, standart matnli chek chiqarilmoqda: {file_path}")
+        return print_to_xp58(order, note="Fayl formati raster qilib bo'lmadi")
+
+    data = bytearray()
+    data.extend(INIT_PRINTER)
+
+    # Bosh qismi (Header)
+    data.extend(ALIGN_CENTER)
+    data.extend(DOUBLE_SIZE + BOLD_ON)
+    data.extend("SMART PRINTCHI (58mm)\n".encode("utf-8", errors="ignore"))
+    data.extend(NORMAL_SIZE + BOLD_OFF)
+    data.extend(f"Buyurtma: #{oid} | {fname[:20]}\n".encode("utf-8", errors="ignore"))
+    data.extend("--------------------------------\n".encode("utf-8"))
+
+    # Har bir sahifani zichlab raster holatda chiqarish
+    for idx, img in enumerate(images):
+        if idx > 0:
+            data.extend(ALIGN_CENTER)
+            data.extend(f"- - - Sahifa {idx + 1} - - -\n".encode("utf-8"))
+        raster_bytes = image_to_escpos(img)
+        data.extend(raster_bytes)
+        data.extend(b"\n")
+
+    # Yakuniy qismi (Footer)
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    data.extend(ALIGN_CENTER)
+    data.extend("--------------------------------\n".encode("utf-8"))
+    data.extend(BOLD_ON + "CHOP ETILDI [OK]\n".encode("utf-8") + BOLD_OFF)
+    data.extend("Loyiha: Ravshanov Muhammad Ali\n".encode("utf-8"))
+    data.extend(f"Sana: {now_str}\n".encode("utf-8"))
+    data.extend("--------------------------------\n".encode("utf-8"))
+    data.extend(FEED_CUT)
+
+    try:
+        with open(port, "wb") as f:
+            for _ in range(max(1, min(copies, 5))):
+                f.write(data)
+                f.flush()
+        logger.info(f"✅ XP-58 da fayl ({len(images)} sahifa) muvaffaqiyatli zichlab chop etildi (#{oid})")
+        return True
+    except PermissionError:
+        logger.error("XP-58 portiga ruxsat yetarli emas! 'sudo usermod -aG lp cail' kerak.")
+        return False
+    except Exception as e:
+        logger.error(f"XP-58 ga faylni chiqarishda xato: {e}")
+        return False
+
+
 def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait", page_ranges: str = "") -> tuple[bool, str]:
     """
     Canon LBP3010 ga CUPS orqali fayl yuboradi va uning haqiqatda chop
@@ -234,27 +415,17 @@ def process_job(job: dict):
     target = job.get("printer_type", "laser_bw")
     filename = job.get("filename", "")
 
-    # Agar dasturchi rejimi yoki termal chek so'ralgan bo'lsa
-    if target == "thermal" or filename.endswith(".receipt"):
-        logger.info(f"Buyurtma #{order_id} → XP-58 termal printeriga yo'naltirildi")
-        ok = print_to_xp58(job)
-        if ok:
-            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
-        else:
-            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
-                          json={"status": "FAILED", "error": "XP-58 termal printer xatosi"}, timeout=5)
-        return
-
-    # Asosiy: Canon LBP3010 (A4 lazer)
+    # Faylni xavfsiz spool papkasiga yuklab olish
     spool_dir = get_spool_dir()
-    tmp_pdf = spool_dir / f"job_{order_id}_{int(time.time())}.pdf"
+    clean_ext = Path(filename).suffix.lower() if Path(filename).suffix else ".pdf"
+    tmp_file = spool_dir / f"job_{order_id}_{int(time.time())}{clean_ext}"
     try:
         download_url = f"{CLOUD_URL}/api/agent/download/{order_id}"
         logger.info(f"Fayl yuklab olinmoqda: {download_url}")
         res = requests.get(download_url, timeout=30, stream=True)
         if not res.ok:
             raise RuntimeError(f"Faylni yuklab bo'lmadi: status {res.status_code}")
-        with open(tmp_pdf, "wb") as f:
+        with open(tmp_file, "wb") as f:
             for chunk in res.iter_content(chunk_size=8192):
                 f.write(chunk)
     except Exception as e:
@@ -263,26 +434,42 @@ def process_job(job: dict):
                       json={"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"}, timeout=5)
         return
 
+    # 1. Agar XP-58 (termal chek) tanlangan bo'lsa: faylni 384px ga zichlab chop etamiz!
+    if target == "thermal" or filename.endswith(".receipt"):
+        logger.info(f"Buyurtma #{order_id} → XP-58 termal printeriga zichlab (raster) chiqarilmoqda...")
+        ok = print_file_to_xp58(tmp_file, order=job)
+        if ok:
+            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
+        else:
+            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
+                          json={"status": "FAILED", "error": "XP-58 termal printer xatosi"}, timeout=5)
+        try:
+            tmp_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return
+
+    # 2. Asosiy: Canon LBP3010 (A4 lazer)
     copies = job.get("copies", 1)
     orientation = job.get("orientation", "portrait")
     ranges = job.get("page_ranges", "")
-    ok, note = print_to_canon(tmp_pdf, copies=copies, orientation=orientation, page_ranges=ranges)
+    ok, note = print_to_canon(tmp_file, copies=copies, orientation=orientation, page_ranges=ranges)
 
     if ok:
         logger.info(f"Buyurtma #{order_id} muvaffaqiyatli chop etildi!")
         requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
     else:
         logger.error(f"Canon muvaffaqiyatsiz bo'ldi: {note}")
-        # DASTURCHI FALLBACK: Agar Canon to'xtab qolsa va XP-58 ulangan bo'lsa, xulosa chekini chiqaramiz!
+        # DASTURCHI FALLBACK: Agar Canon to'xtab qolsa va XP-58 ulangan bo'lsa, faylni XP-58 ga zichlab chiqaramiz!
         if find_xp58_port():
-            logger.info("⚡ Dasturchi holati: XP-58 ga hisobot cheki chiqarilmoqda...")
-            print_to_xp58(job, note="Canon A4 to'xtab qoldi. Dev-chek chiqarildi.")
+            logger.info("⚡ Dasturchi holati: Canon to'xtadi. Fayl XP-58 ga zichlab chiqarilmoqda...")
+            print_file_to_xp58(tmp_file, order=job)
 
         requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
                       json={"status": "FAILED", "error": note}, timeout=5)
 
     try:
-        tmp_pdf.unlink(missing_ok=True)
+        tmp_file.unlink(missing_ok=True)
     except Exception:
         pass
 
