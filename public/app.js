@@ -26,7 +26,8 @@
   const S = {
     view: 'print',
     printerType: 'laser_bw', // 'laser_bw' (Canon A4) yoki 'thermal' (XP-58 Chek)
-    file: null,            // File
+    file: null,            // File (shablon tanlansa: {name, size: 0})
+    template: null,        // tanlangan shablon: hujjat kabi yuklanadi, nusxa tanlanadi
     fileExt: '',
     pages: 0,              // fayldagi jami betlar
     counting: false,
@@ -113,7 +114,10 @@
     return S.pages;
   }
 
-  function unitPrice() { return S.color === 'color' ? S.priceColor : S.priceBw; }
+  function unitPrice() {
+    if (S.template) return S.template.price_per_page || S.priceBw;
+    return S.color === 'color' ? S.priceColor : S.priceBw;
+  }
 
   // ── Chat ────────────────────────────────────────────────
   function renderChat() {
@@ -123,8 +127,8 @@
       html += `<div class="bubble bot"><span>Salom! Chop etmoqchi bo‘lgan faylni yuboring yoki tayyor shablonni tanlang.</span>${S.botLead ? `<strong>${esc(S.botLead)}</strong>` : ''}</div>`;
     } else {
       const ext = (S.fileExt || 'fayl').slice(0, 4);
-      const sub = S.counting ? 'sahifalar sanalmoqda…' : `${S.pages} bet · ${fmtSize(S.file.size)}`;
-      html += `<div class="file-bubble"><span class="file-badge">${esc(ext)}</span><span class="file-meta"><p class="file-name">${esc(S.file.name)}</p><p class="file-sub">${esc(sub)}</p></span></div>`;
+      const sub = S.counting ? 'sahifalar sanalmoqda…' : (S.template ? `shablon, ${S.pages} bet` : `${S.pages} bet · ${fmtSize(S.file.size)}`);
+      html += `<div class="file-bubble" data-kind="${S.template ? 'template' : 'file'}"><span class="file-badge">${esc(ext)}</span><span class="file-meta"><p class="file-name">${esc(S.file.name)}</p><p class="file-sub">${esc(sub)}</p></span></div>`;
       if (S.userMsg) html += `<p class="bubble user">${esc(S.userMsg)}</p>`;
       if (S.counting) {
         html += `<div class="bubble bot" aria-label="Yordamchi yozmoqda"><span class="typing"><span></span><span></span><span></span></span></div>`;
@@ -138,10 +142,10 @@
   function summaryLine() {
     const sel = selectedPages();
     if (S.rangeMode === 'custom' && !sel) return 'Betlar oralig‘ini to‘g‘ri kiriting';
-    const range = S.rangeMode === 'all' ? `barcha ${S.pages} bet` : `${normRange(S.rangeText).replace(/-/g, '–')} (${sel} bet)`;
+    const range = S.rangeMode === 'all' ? `barcha ${S.pages} bet` : `${normRange(S.rangeText).replace(/-/g, '-')} (${sel} bet)`;
     const orient = S.orientation === 'landscape' ? 'albom' : 'kitob';
     const color = S.color === 'color' ? 'rangli' : 'oq-qora';
-    const prn = S.printerType === 'thermal' ? '🧾 XP-58 Chek' : '🖨️ Canon A4';
+    const prn = S.printerType === 'thermal' ? 'XP-58 chek' : 'Canon A4';
     return `${prn} · ${range} · ${orient} · ${color} · ${S.copies} nusxa = ${money(sel * S.copies * unitPrice())}`;
   }
 
@@ -150,16 +154,16 @@
     if (!S.file || S.counting) { chips.hidden = true; return; }
     const list = [];
     if (S.printerType === 'thermal') {
-      list.push(['🖨️ Canon A4 ga o‘tish', () => update({ printerType: 'laser_bw' }, 'Canon LBP3010 A4 lazer tanlandi.')]);
+      list.push(['A4 printerga o‘tish', () => update({ printerType: 'laser_bw' }, 'Canon LBP3010 A4 lazer tanlandi.')]);
     } else {
-      list.push(['🧾 XP-58 Chekda chiqarish', () => update({ printerType: 'thermal' }, 'XP-58 termal chek printeri tanlandi.')]);
+      list.push(['Chek printerda chiqarish', () => update({ printerType: 'thermal' }, 'XP-58 termal chek printeri tanlandi.')]);
     }
     if (S.copies < 2) list.push(['2 nusxa', () => update({ copies: 2 }, 'Tushundim: 2 nusxa.')]);
     else list.push(['1 nusxa', () => update({ copies: 1 }, 'Tushundim: 1 nusxa.')]);
     if (S.pages > 3 && !(S.rangeMode === 'custom' && normRange(S.rangeText) === '1-3')) {
-      list.push(['Faqat 1–3 bet', () => update({ rangeMode: 'custom', rangeText: '1-3' }, 'Tushundim: faqat 1–3 betlar.')]);
+      list.push(['Faqat 1-3 bet', () => update({ rangeMode: 'custom', rangeText: '1-3' }, 'Tushundim: faqat 1-3 betlar.')]);
     }
-    list.push(S.orientation === 'portrait'
+    if (!S.template) list.push(S.orientation === 'portrait'
       ? ['Albom qilib', () => update({ orientation: 'landscape' }, 'Tushundim: albom yo‘nalishi.')]
       : ['Kitob qilib', () => update({ orientation: 'portrait' }, 'Tushundim: kitob yo‘nalishi.')]);
     list.push(['Boshqa fayl', () => $('fileInput').click()]);
@@ -189,8 +193,9 @@
     document.querySelectorAll('[data-color]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.color === S.color)));
     const cb = $('colorBtn');
     cb.disabled = !S.colorReady;
-    cb.title = S.colorReady ? `Rangli — ${money(S.priceColor)}/bet` : 'Rangli printer ulanmagan';
-    $('rangeTile').hidden = S.rangeMode !== 'custom';
+    cb.title = S.colorReady ? `Rangli: ${money(S.priceColor)}/bet` : 'Rangli printer ulanmagan';
+    ['lblOrient', 'lblPages', 'lblColor'].forEach((id) => { $(id).closest('.tile').hidden = !!S.template; });
+    $('rangeTile').hidden = S.rangeMode !== 'custom' || !!S.template;
     if ($('rangeInput').value !== S.rangeText) $('rangeInput').value = S.rangeText;
     const sel = selectedPages();
     const hint = $('rangeHint');
@@ -292,7 +297,7 @@
     if (rg) {
       patch.rangeMode = 'custom';
       patch.rangeText = normRange(rg[0]);
-      done.push(`${patch.rangeText.replace(/-/g, '–')} betlar`);
+      done.push(`${patch.rangeText} betlar`);
     } else if (single) {
       patch.rangeMode = 'custom';
       patch.rangeText = single[1];
@@ -354,7 +359,7 @@
     }
 
     if (!S.file) {
-      update({ userMsg: '' }, 'Avval faylni yuboring — pastdagi qisqich tugmasi yoki «Faylni tanlang».');
+      update({ userMsg: '' }, 'Avval faylni yuboring: pastdagi qisqich tugmasi yoki «Faylni tanlang».');
       toast('Avval faylni tanlang');
       return;
     }
@@ -365,9 +370,9 @@
     } else if (wantsPay) {
       update({}, 'Yaxshi, to‘lov oynasini ochyapman.');
     } else {
-      update({}, 'Kechirasiz, tushunmadim. «2 nusxa», «5–8 bet», «albom» yoki «to‘lash» deb yozing.');
+      update({}, 'Kechirasiz, tushunmadim. «2 nusxa», «5-8 bet», «albom» yoki «to‘lash» deb yozing.');
     }
-    if (wantsPay && !$('payBtn').disabled) openPay({ kind: 'file' });
+    if (wantsPay && !$('payBtn').disabled) payNow();
   }
 
   // PDF sahifalarini brauzerda 0.01 soniyada (serverga yuklamasdan) tezkor sanash
@@ -408,6 +413,7 @@
     if (!EXTS.includes(ext)) { toast('Bu format qabul qilinmaydi. PDF, DOCX, JPG yoki PNG yuboring.', 'err'); return; }
     if (file.size > MAX_BYTES) { toast('Fayl 64 MB dan katta.', 'err'); return; }
     S.view = 'print';
+    S.template = null;
 
     // Rasm bo'lsa darhol 1 bet (serverga so'rovsiz chaqmoqdek ochiladi)
     if (['png', 'jpg', 'jpeg'].includes(ext)) {
@@ -436,7 +442,7 @@
       update({ pages: Math.max(1, data.page_count || 1), counting: false }, '');
       speak(`${S.pages} bet topildi.`);
     } catch (e) {
-      update({ pages: 1, counting: false }, 'Sahifalarni sanab bo‘lmadi — narx to‘lov oynasida aniq hisoblanadi.');
+      update({ pages: 1, counting: false }, 'Sahifalarni sanab bo‘lmadi. Narx to‘lov oynasida aniq hisoblanadi.');
       if (!S.online) toast('Server bilan aloqa yo‘q. Internetni tekshiring.', 'err');
     }
   }
@@ -521,8 +527,13 @@
     const t = S.templates.find((x) => x.id === btn.dataset.tpl);
     if (!t) return;
     if (!S.printerReady) { toast('Printer hozir tayyor emas. Birozdan so‘ng urinib ko‘ring.', 'err'); return; }
-    openPay({ kind: 'template', template: t });
+    S.view = 'print';
+    update({ template: t, file: { name: t.name, size: 0 }, fileExt: (t.file || 'docx').split('.').pop(), pages: t.pages || 1,
+      counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray', orientation: 'portrait' },
+      `“${t.name}” tanlandi. Nusxa sonini tanlang, keyin to‘lang.`);
   }
+
+  const payNow = () => openPay(S.template ? { kind: 'template', template: S.template } : { kind: 'file' });
 
   // ── To'lov ──────────────────────────────────────────────
   function payTargets(amount, orderId) {
@@ -577,7 +588,7 @@
     S.lastStatus = '';
     $('payOverlay').hidden = false;
     $('orderCode').textContent = '#······';
-    $('payAmount').textContent = '— so‘m';
+    $('payAmount').textContent = '... so‘m';
     $('paySummary').textContent = 'Buyurtma tayyorlanmoqda…';
     $('payClaim').disabled = true;
     if (src.kind !== 'template' && S.file && S.file.size > 2 * 1024 * 1024) {
@@ -593,7 +604,7 @@
     if (src.kind === 'template') {
       fd.append('source', 'template');
       fd.append('template_id', src.template.id);
-      fd.append('copies', '1');
+      fd.append('copies', String(S.copies));
     } else {
       fd.append('source', 'file');
       fd.append('file', S.file);
@@ -680,7 +691,7 @@
       case 'PAID':
       case 'PRINTING':
         $('payClaim').disabled = true;
-        setPayStatus(data.note ? '' : 'ok', data.note ? data.note : 'To‘lov tasdiqlandi — chop etilmoqda…');
+        setPayStatus(data.note ? '' : 'ok', data.note ? data.note : 'To‘lov tasdiqlandi, chop etilmoqda…');
         break;
       case 'PRINTED': {
         const id = S.order.id;
@@ -725,7 +736,7 @@
 
   function resetFile() {
     $('fileInput').value = '';
-    update({ file: null, fileExt: '', pages: 0, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
+    update({ file: null, template: null, fileExt: '', pages: 0, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
   }
 
   // ── Admin ───────────────────────────────────────────────
@@ -799,8 +810,8 @@
     document.addEventListener('dragover', (e) => e.preventDefault());
     document.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]); });
 
-    $('copiesDec').addEventListener('click', () => update({ copies: S.copies - 1 }, 'Yangiladim. Hozirgi buyurtma:'));
-    $('copiesInc').addEventListener('click', () => update({ copies: S.copies + 1 }, 'Yangiladim. Hozirgi buyurtma:'));
+    $('copiesDec').addEventListener('click', () => update({ copies: S.copies - 1 }, 'Yangiladim, chekka qarang.'));
+    $('copiesInc').addEventListener('click', () => update({ copies: S.copies + 1 }, 'Yangiladim, chekka qarang.'));
     document.querySelectorAll('[data-printer]').forEach((b) => b.addEventListener('click', () => {
       const pt = b.dataset.printer;
       const msg = pt === 'thermal'
@@ -808,13 +819,13 @@
         : 'Canon LBP3010 (A4 lazer) printeri tanlandi.';
       update({ printerType: pt }, msg);
     }));
-    document.querySelectorAll('[data-orient]').forEach((b) => b.addEventListener('click', () => update({ orientation: b.dataset.orient }, 'Yangiladim. Hozirgi buyurtma:')));
-    document.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => update({ color: b.dataset.color }, 'Yangiladim. Hozirgi buyurtma:')));
+    document.querySelectorAll('[data-orient]').forEach((b) => b.addEventListener('click', () => update({ orientation: b.dataset.orient }, 'Yangiladim, chekka qarang.')));
+    document.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => update({ color: b.dataset.color }, 'Yangiladim, chekka qarang.')));
     document.querySelectorAll('[data-range]').forEach((b) => b.addEventListener('click', () => {
-      update({ rangeMode: b.dataset.range }, 'Yangiladim. Hozirgi buyurtma:');
+      update({ rangeMode: b.dataset.range }, 'Yangiladim, chekka qarang.');
       if (b.dataset.range === 'custom') $('rangeInput').focus();
     }));
-    $('rangeInput').addEventListener('input', (e) => { S.rangeText = e.target.value; S.botLead = 'Yangiladim. Hozirgi buyurtma:'; renderChat(); renderSettings(); renderPaybar(); });
+    $('rangeInput').addEventListener('input', (e) => { S.rangeText = e.target.value; S.botLead = 'Yangiladim, chekka qarang.'; renderChat(); renderSettings(); renderPaybar(); });
 
     $('composer').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -823,7 +834,7 @@
       onCommand(v);
     });
 
-    $('payBtn').addEventListener('click', () => openPay({ kind: 'file' }));
+    $('payBtn').addEventListener('click', payNow);
     $('tplGrid').addEventListener('click', onTemplateClick);
     $('quickTemplates').addEventListener('click', onTemplateClick);
     $('tplSearch').addEventListener('input', renderTemplates);
