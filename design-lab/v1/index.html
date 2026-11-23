@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F0F1EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1113" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Smart Printchi: telefondan hujjat chop etish kioski. Fayl yuklang, to‘lang, qog‘ozni oling.">
+<title>Smart Printchi · V1 (taste-skill)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+<link rel="stylesheet" href="styles.css?v=4">
+</head>
+<body>
+<div class="page">
+
+  <!-- ══ Ilova (telefonda birinchi, kompyuterda o'ngda yopishib turadi) ══ -->
+  <div class="app-col">
+    <div class="app" id="app">
+      <header class="topbar">
+        <button class="brand" id="brandBtn" type="button" aria-label="Smart Printchi, bosh sahifa">
+          <span class="brand-mark" aria-hidden="true"><i class="ph-bold ph-printer"></i></span>
+          <span>
+            <p class="brand-name">Printchi</p>
+            <p class="status" id="printerStatus" role="status"><span class="dot"></span><span id="printerStatusText">Printer tekshirilmoqda…</span></p>
+          </span>
+        </button>
+        <button class="link-btn" id="navBtn" type="button">Shablonlar →</button>
+      </header>
+
+      <main class="view" id="viewPrint">
+        <section class="chat" id="chat" aria-live="polite" aria-label="Yordamchi bilan suhbat"></section>
+        <div class="chips" id="chips" hidden></div>
+
+        <section class="grid" id="startGrid">
+          <button class="drop" id="dropZone" type="button">
+            <span class="drop-icon" aria-hidden="true"><i class="ph-bold ph-file-arrow-up"></i></span>
+            <span class="drop-title">Faylni tanlang</span>
+            <span class="hint">PDF, DOCX, JPG yoki PNG, 64 MB gacha</span>
+          </button>
+          <div id="quickTemplates" style="display: contents"></div>
+        </section>
+
+        <section class="grid" id="settingsGrid" hidden aria-label="Chop etish sozlamalari">
+          <div class="tile span-2" id="printerTile">
+            <p class="tile-label" id="lblPrinter">Printer</p>
+            <div class="seg seg-printer" role="group" aria-labelledby="lblPrinter">
+              <button type="button" data-printer="laser_bw" id="btnPrinterLaser" aria-pressed="true">
+                <i class="ph ph-file-text" aria-hidden="true"></i>
+                <span><b>A4 qog‘oz</b><small>Canon LBP3010</small></span>
+              </button>
+              <button type="button" data-printer="thermal" id="btnPrinterThermal" aria-pressed="false">
+                <i class="ph ph-receipt" aria-hidden="true"></i>
+                <span><b>Chek 58 mm</b><small>XP-58</small></span>
+              </button>
+            </div>
+          </div>
+          <div class="tile">
+            <p class="tile-label" id="lblCopies">Nusxa</p>
+            <div class="stepper" role="group" aria-labelledby="lblCopies">
+              <button class="round" id="copiesDec" type="button" aria-label="Nusxani kamaytirish"><i class="ph-bold ph-minus" aria-hidden="true"></i></button>
+              <output id="copiesOut" aria-live="polite">1</output>
+              <button class="round dark" id="copiesInc" type="button" aria-label="Nusxani ko‘paytirish"><i class="ph-bold ph-plus" aria-hidden="true"></i></button>
+            </div>
+          </div>
+          <div class="tile">
+            <p class="tile-label" id="lblOrient">Yo‘nalish</p>
+            <div class="seg" role="group" aria-labelledby="lblOrient">
+              <button type="button" data-orient="portrait" aria-pressed="true">Kitob</button>
+              <button type="button" data-orient="landscape" aria-pressed="false">Albom</button>
+            </div>
+          </div>
+          <div class="tile">
+            <p class="tile-label" id="lblPages">Sahifalar</p>
+            <div class="seg" role="group" aria-labelledby="lblPages">
+              <button type="button" data-range="all" aria-pressed="true">Hammasi</button>
+              <button type="button" data-range="custom" aria-pressed="false">Tanlash</button>
+            </div>
+          </div>
+          <div class="tile">
+            <p class="tile-label" id="lblColor">Rang</p>
+            <div class="seg" role="group" aria-labelledby="lblColor">
+              <button type="button" data-color="gray" aria-pressed="true">Oq-qora</button>
+              <button type="button" data-color="color" aria-pressed="false" id="colorBtn" disabled title="Rangli printer ulanmagan">Rangli</button>
+            </div>
+          </div>
+          <div class="tile span-2" id="rangeTile" hidden>
+            <label class="tile-label" for="rangeInput">Qaysi betlar? Masalan: 1-3, 5, 8-10</label>
+            <input class="field" id="rangeInput" inputmode="numeric" autocomplete="off" placeholder="1-3, 5">
+            <p class="hint" id="rangeHint"></p>
+          </div>
+        </section>
+
+        <div class="spacer"></div>
+
+        <div class="dock">
+          <section class="paybar" aria-label="To‘lov">
+            <div class="paybar-text">
+              <p class="paybar-label" id="totalLabel">Fayl tanlanmagan</p>
+              <p class="paybar-total" id="totalText">0 so‘m</p>
+            </div>
+            <button class="btn-accent" id="payBtn" type="button" disabled>To‘lash</button>
+          </section>
+          <form class="composer" id="composer" autocomplete="off">
+            <button class="round" id="attachBtn" type="button" aria-label="Fayl biriktirish"><i class="ph ph-paperclip" aria-hidden="true"></i></button>
+            <label class="sr-only" for="msgInput">Buyurtmani yozing</label>
+            <input id="msgInput" placeholder="Masalan: 2 nusxa, 5-8 bet, albom" enterkeyhint="send">
+            <button class="round dark" type="submit" aria-label="Yuborish"><i class="ph-bold ph-arrow-right" aria-hidden="true"></i></button>
+          </form>
+        </div>
+        <input type="file" id="fileInput" accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+      </main>
+
+      <main class="view" id="viewTemplates" hidden>
+        <h2 class="view-title">Tayyor shablonlar</h2>
+        <label class="sr-only" for="tplSearch">Shablon qidirish</label>
+        <input class="field" id="tplSearch" placeholder="Qidirish: ariza, mustaqil ish…">
+        <section class="grid" id="tplGrid" aria-live="polite"></section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ══ Landing (kompyuterda chapda) ══ -->
+  <div class="info">
+    <section class="hero" aria-labelledby="heroTitle">
+      <div class="horizon" aria-hidden="true"><span class="halo"></span><span class="rim"></span><span class="orb"></span></div>
+      <div class="hero-copy">
+        <h1 id="heroTitle">Faylni yuklang, qog‘ozni kioskdan oling</h1>
+        <p class="hero-sub">PDF, Word yoki rasm. Betlar va nusxani tanlaysiz, Click, Payme yoki karta bilan to‘laysiz.</p>
+        <div class="hero-cta">
+          <button class="btn-primary" type="button" data-act="pick"><i class="ph-bold ph-file-arrow-up" aria-hidden="true"></i>Faylni tanlang</button>
+          <button class="btn-quiet" type="button" data-act="templates">Shablonlar</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="how reveal" id="how" aria-labelledby="howTitle">
+      <h2 id="howTitle">Qanday ishlaydi</h2>
+      <ol class="how-list">
+        <li>
+          <i class="ph ph-upload-simple" aria-hidden="true"></i>
+          <b>Yuklang</b>
+          <span>Fayl telefoningizdan ketadi. Yordamchi betlarni sanaydi va narxni darhol ko‘rsatadi.</span>
+        </li>
+        <li>
+          <i class="ph ph-qr-code" aria-hidden="true"></i>
+          <b>To‘lang</b>
+          <span>QR, Click, Payme yoki karta. Summa serverda hisoblanadi, buyurtmaga kod beriladi.</span>
+        </li>
+        <li>
+          <i class="ph ph-printer" aria-hidden="true"></i>
+          <b>Oling</b>
+          <span>To‘lov tasdiqlangach printer ishga tushadi. Hujjat tayyor bo‘lsa ekranda xabar chiqadi.</span>
+        </li>
+      </ol>
+    </section>
+
+    <section class="prices reveal" id="prices" aria-labelledby="pricesTitle">
+      <h2 id="pricesTitle">Narxlar</h2>
+      <div class="bento">
+        <article class="cell cell-main">
+          <p class="cell-label">A4, oq-qora</p>
+          <p class="cell-num">250<span> so‘m / bet</span></p>
+          <p class="cell-note">Canon LBP3010 lazer printer</p>
+        </article>
+        <figure class="cell cell-photo">
+          <!-- TODO: kioskning haqiqiy fotosurati, 800x1000 (printer + QR stiker) -->
+          <div class="photo-slot"><i class="ph ph-camera" aria-hidden="true"></i><span>Kiosk fotosurati</span></div>
+        </figure>
+        <article class="cell cell-accent">
+          <p class="cell-label">Chek, 58 mm</p>
+          <p class="cell-num">250<span> so‘m / bet</span></p>
+          <p class="cell-note">XP-58 termal printer</p>
+        </article>
+        <article class="cell cell-plain">
+          <p class="cell-label">A4, rangli</p>
+          <p class="cell-num">400<span> so‘m / bet</span></p>
+          <p class="cell-note">Rangli printer ulanganda</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="tpl-strip reveal" id="templates" aria-labelledby="tplTitle">
+      <h2 id="tplTitle">Tayyor shablonlar</h2>
+      <p class="section-sub">Faylingiz yo‘qmi? Universitetda kerak bo‘ladigan blankalar tayyor turibdi, har biri 250 so‘m.</p>
+      <ul class="tpl-pills">
+        <li><button type="button" data-act="templates"><i class="ph ph-file-text" aria-hidden="true"></i>Mustaqil ish yuzi</button></li>
+        <li><button type="button" data-act="templates"><i class="ph ph-flask" aria-hidden="true"></i>Laboratoriya ishi yuzi</button></li>
+        <li><button type="button" data-act="templates"><i class="ph ph-note-pencil" aria-hidden="true"></i>Ariza blanki</button></li>
+        <li><button type="button" data-act="templates"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i>Qayta o‘zlashtirish</button></li>
+        <li><button type="button" data-act="templates"><i class="ph ph-stamp" aria-hidden="true"></i>Dalolatnoma blanki</button></li>
+      </ul>
+    </section>
+
+    <footer class="foot">
+      <span class="foot-brand"><i class="ph-bold ph-printer" aria-hidden="true"></i>Smart Printchi</span>
+      <nav aria-label="Sahifa bo‘limlari"><a href="#how">Qanday ishlaydi</a><a href="#prices">Narxlar</a><a href="#templates">Shablonlar</a></nav>
+    </footer>
+  </div>
+</div>
+
+<!-- ══ To'lov ══ -->
+<div class="overlay" id="payOverlay" hidden>
+  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="payTitle" id="paySheet">
+    <span class="grabber" aria-hidden="true"></span>
+    <div class="sheet-head">
+      <h2 class="sheet-title" id="payTitle">To‘lov</h2>
+      <p class="order-code" id="orderCode">#······</p>
+    </div>
+    <div class="amount-tile">
+      <p class="paybar-label" id="paySummary">Buyurtma tayyorlanmoqda…</p>
+      <p class="amount-big" id="payAmount">... so‘m</p>
+    </div>
+    <div class="methods" role="group" aria-label="To‘lov usuli">
+      <button type="button" data-method="qr" aria-pressed="true">QR</button>
+      <button type="button" data-method="click" aria-pressed="false">Click</button>
+      <button type="button" data-method="payme" aria-pressed="false">Payme</button>
+      <button type="button" data-method="card" aria-pressed="false">Karta</button>
+    </div>
+    <div class="pay-panel" id="payPanel"></div>
+    <p class="pay-status" id="payStatus" role="status">Buyurtma yaratilmoqda…</p>
+    <div class="row2">
+      <button class="btn-ghost" id="payCancel" type="button">Bekor qilish</button>
+      <button class="btn-dark" id="payClaim" type="button" disabled>To‘lov qildim</button>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="resultOverlay" hidden>
+  <section class="sheet result" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+    <span class="result-icon" id="resultIcon" aria-hidden="true"></span>
+    <h2 id="resultTitle">Hujjat tayyor!</h2>
+    <p id="resultText"></p>
+    <button class="btn-dark" id="resultBtn" type="button">Yangi buyurtma</button>
+  </section>
+</div>
+
+<div class="overlay" id="adminOverlay" hidden>
+  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="adminTitle">
+    <span class="grabber" aria-hidden="true"></span>
+    <div class="sheet-head">
+      <h2 class="sheet-title" id="adminTitle">Admin: shablonlar</h2>
+      <button class="link-btn" id="adminClose" type="button">Yopish</button>
+    </div>
+    <form class="form tile" id="adminTokenForm">
+      <label>Admin paroli (ADMIN_TOKEN)<input class="field" id="adminToken" type="password" autocomplete="current-password"></label>
+      <button class="btn-dark" type="submit">Saqlash</button>
+    </form>
+    <form class="form tile" id="adminUpload">
+      <label>Nomi<input class="field" name="name" required placeholder="Masalan: Kurs ishi yuzi"></label>
+      <label>Tavsif<input class="field" name="description" placeholder="Qisqa izoh"></label>
+      <label>Bir bet narxi (so‘m)<input class="field" name="price_per_page" type="number" min="0" step="50" value="250"></label>
+      <label>Fayl (PDF yoki DOCX)<input class="field" name="file" type="file" accept=".pdf,.docx" required></label>
+      <button class="btn-dark" type="submit">Shablonni yuklash</button>
+    </form>
+    <div class="admin-list" id="adminList"></div>
+  </section>
+</div>
+
+<div class="toast" id="toast" role="alert" hidden></div>
+
+<script src="../../public/config.js"></script>
+<script src="../demo-mock.js"></script>
+<script src="../../public/app.js"></script>
+<script>
+  /* Landing tugmalari ilovaning o'z boshqaruvlarini chaqiradi: holat bitta joyda qoladi */
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    if (b.dataset.act === 'pick') document.getElementById('fileInput').click();
+    if (b.dataset.act === 'templates' && document.getElementById('viewTemplates').hidden) document.getElementById('navBtn').click();
+    if (matchMedia('(max-width: 1023px)').matches) document.getElementById('app').scrollIntoView({ behavior: 'smooth' });
+  });
+  /* Bo'limlar ko'rinish maydoniga kirganda bir marta paydo bo'ladi (scroll listener emas) */
+  const io = 'IntersectionObserver' in window && new IntersectionObserver((es) => es.forEach((x) => {
+    if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); }
+  }), { threshold: 0.2 });
+  document.querySelectorAll('.reveal').forEach((el) => io ? io.observe(el) : el.classList.add('in'));
+  /* Jami summa haqiqatan o'zgarganda kichik "tick" (har render'da emas) */
+  const total = document.getElementById('totalText');
+  let lastTotal = total.textContent;
+  new MutationObserver(() => {
+    if (total.textContent === lastTotal) return;
+    lastTotal = total.textContent;
+    total.classList.remove('tick'); void total.offsetWidth; total.classList.add('tick');
+  }).observe(total, { childList: true, characterData: true, subtree: true });
+</script>
+</body>
+</html>

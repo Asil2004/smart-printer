@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Printchi · V1, V2, V3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono&display=swap">
+<style>
+  :root { --bg: #EEF0F0; --card: #FFFFFF; --text: #141618; --muted: #5E646A; --line: rgba(20,22,24,.12); }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0F1012; --card: #17181B; --text: #EDEEF0; --muted: #9AA0A7; --line: rgba(237,238,240,.12); } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.5 'Geist', system-ui, sans-serif; }
+  header { max-width: 1600px; margin: 0 auto; padding: 24px 24px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 500; }
+  .seg { display: flex; gap: 4px; padding: 4px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); }
+  .seg button { min-height: 36px; padding: 0 14px; border: none; border-radius: 6px; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+  .cols { max-width: 1600px; margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } }
+  .col h2 { margin: 0 0 4px; font-size: 16px; font-weight: 500; }
+  .col p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+  .col a { color: inherit; }
+  .frame { position: relative; overflow: hidden; border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+  .frame iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; }
+  .mobile .frame { width: 390px; height: 844px; margin: 0 auto; }
+  table { max-width: 1552px; margin: 32px auto 48px; width: calc(100% - 48px); border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  th { font-weight: 500; color: var(--muted); }
+  td:first-child { color: var(--muted); white-space: nowrap; }
+  code { font-family: 'Geist Mono', monospace; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Smart Printchi: V1, V2, V3</h1>
+  <div class="seg" role="group" aria-label="Qurilma">
+    <button type="button" data-mode="desktop" aria-pressed="true">Kompyuter 1440</button>
+    <button type="button" data-mode="mobile" aria-pressed="false">Telefon 390</button>
+  </div>
+</header>
+
+<main class="cols" id="cols">
+  <section class="col">
+    <h2>V1 · taste-skill</h2>
+    <p>Ufq nuri, scroll harakati, bento narxlar. <a href="v1/" target="_blank" rel="noopener">Alohida ochish</a></p>
+    <div class="frame"><iframe src="v1/" title="V1" loading="lazy"></iframe></div>
+  </section>
+  <section class="col">
+    <h2>V2 · taste-skill + charles-unslop</h2>
+    <p>Buyurtma chek bo‘lib bosiladi, printer tirqishi. <a href="v2/" target="_blank" rel="noopener">Alohida ochish</a></p>
+    <div class="frame"><iframe src="v2/" title="V2" loading="lazy"></iframe></div>
+  </section>
+  <section class="col">
+    <h2>V3 · V1 + chek</h2>
+    <p>V1 ning ufqi va harakati, V2 ning chek tizimi. <a href="v3/" target="_blank" rel="noopener">Alohida ochish</a></p>
+    <div class="frame"><iframe src="v3/" title="V3" loading="lazy"></iframe></div>
+  </section>
+</main>
+
+<table>
+  <thead><tr><th></th><th>V1 · taste-skill</th><th>V2 · + charles-unslop</th><th>V3 · V1 + chek</th></tr></thead>
+  <tbody>
+    <tr><td>G‘oya</td><td>21st Horizon Glow: sayyora ufqi, lime nur</td><td>Buyurtma XP-58 chekidek: har tanlov bitta qator, jami pastda</td><td>V1 ufqi + buyurtma cheki</td></tr>
+    <tr><td>Hero vizuali</td><td>Porlayotgan ufq + vertikal chiziq teksturasi</td><td>Printer tirqishi (ufq), undan narxlar cheki chiqadi</td><td>V1 dagi ufq (drift, scroll)</td></tr>
+    <tr><td>Narxlar</td><td>Bento, 4 katak, foto o‘rni</td><td>Hero’dagi chekning o‘zida</td><td>Landing’da narxlar cheki</td></tr>
+    <tr><td>Shrift</td><td>Geist 700, qattiq manfiy tracking</td><td>Geist 400-500, mono faqat chek va raqamlarda</td><td>V1 sarlavhalari; kichik matnda manfiy tracking yo‘q</td></tr>
+    <tr><td>Shakl</td><td>Hamma narsa pill (999px), kartochka 24px</td><td>Boshqaruv 6px, kartochka 10px, qog‘oz yirtilgan chetli</td><td>V1 pill’lari, qog‘oz yirtilgan chetli</td></tr>
+    <tr><td>Ikonlar</td><td>Har yozuvda, 7 o‘lcham, 2 oila</td><td>Faqat kerakli joyda, bitta o‘lcham (18px)</td><td>Bitta oila (regular), shablonlarda ikon yo‘q</td></tr>
+    <tr><td>Motion</td><td>Nur drift, scroll parallax, bo‘limlar xiradan chiqadi, progressive blur</td><td>Faqat tushuntiradigan: chek tirqishdan chiqadi, o‘zgargan qator bosiladi, “To‘landi” muhri</td><td>V1 harakati (bo‘limlarda xiralik yo‘q) + chek qatorlari, muhr</td></tr>
+    <tr><td>Takrorlar</td><td>Chat xulosasi + Jami paneli; 3 ta fayl tanlash joyi</td><td>Xulosa faqat chekda; kompyuterda fayl tanlash bitta joyda</td><td>Xulosa faqat chekda; kompyuterda hero CTA yashirin</td></tr>
+    <tr><td>Bo‘limlar</td><td>Hero, Qanday ishlaydi, Narxlar, Shablonlar, footer nav</td><td>Hero (chek bilan), Shablonlar, footer</td><td>Hero, Qanday ishlaydi (qisqargan), Narxlar cheki, Shablonlar, footer</td></tr>
+  </tbody>
+</table>
+
+<script>
+  const cols = document.getElementById('cols');
+  let mode = 'desktop';
+  function fit() {
+    cols.classList.toggle('mobile', mode === 'mobile');
+    document.querySelectorAll('.frame').forEach((f) => {
+      const ifr = f.querySelector('iframe');
+      if (mode === 'mobile') { ifr.style.width = '390px'; ifr.style.height = '844px'; ifr.style.transform = 'none'; f.style.height = ''; return; }
+      const s = f.clientWidth / 1440;   // 3 ustunda kichik, lekin butun kompozitsiya ko'rinadi
+      ifr.style.width = '1440px'; ifr.style.height = '900px'; ifr.style.transform = `scale(${s})`;
+      f.style.height = `${900 * s}px`;
+    });
+  }
+  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    fit();
+  }));
+  new ResizeObserver(fit).observe(cols);
+  fit();
+</script>
+</body>
+</html>
