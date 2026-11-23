@@ -13,7 +13,7 @@
     if (document.querySelector('#chat .file-bubble')?.dataset.kind === 'template') {
       const thermalT = pressed('data-printer')?.dataset.printer === 'thermal';
       const pagesT = ($('totalLabel').textContent.match(/(\d+)\s*bet/) || [, '1'])[1];
-      const copiesT = $('copiesOut').textContent;
+      const copiesT = $('copiesOut').value;
       const totalT = parseInt($('totalText').textContent.replace(/\D/g, ''), 10) || 0;
       const unitT = Math.round(totalT / Math.max(1, pagesT * copiesT));
       return [
@@ -37,7 +37,7 @@
       ['Printer', thermal ? 'XP-58, chek 58 mm' : 'Canon, A4 lazer'],
       ['Betlar', pages],
       ['Format', `${orient}, ${color ? 'rangli' : 'oq-qora'}`],
-      ['Nusxa', `× ${$('copiesOut').textContent}`],
+      ['Nusxa', `× ${$('copiesOut').value}`],
       ['Narx', `${color ? 400 : 250} so‘m / bet`],
     ];
   }

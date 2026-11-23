@@ -550,4 +550,15 @@ i.ph { font-size: 18px; }
 .app, .sheet { overscroll-behavior: contain; }
 @media (min-width: 1024px) { .app-col .app { scrollbar-gutter: stable; } }
 
+
+/* ── Nusxa: −/+ yoki raqamni yozib kiritish (40 ta uchun 39 marta bosish shart emas) ── */
+.stepper .copies-field {
+  width: 48px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 12px; background: var(--soft);
+  text-align: center; font-family: var(--mono); font-size: 24px; font-weight: 500; letter-spacing: -0.04em; color: var(--ink);
+  font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield;
+}
+.stepper .copies-field::-webkit-outer-spin-button, .stepper .copies-field::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper .copies-field:hover { border-color: var(--line); }
+.stepper .copies-field:focus { outline: none; border-color: var(--ink); background: var(--tile); }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

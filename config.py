@@ -11,6 +11,8 @@ SERVER_HOST = os.environ.get("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.environ.get("SERVER_PORT", 5000))
 SECRET_KEY = os.environ.get("SECRET_KEY", "smart-printchi-secret-key-2026")
 MAX_CONTENT_LENGTH = 64 * 1024 * 1024  # 64 MB
+# Bitta buyurtmada eng ko'p nusxa (.env: MAX_COPIES=...)
+MAX_COPIES = max(1, int(os.environ.get("MAX_COPIES", 50)))
 
 # Ruxsat etilgan fayl turlari
 ALLOWED_EXTENSIONS = {"pdf", "docx", "png", "jpg", "jpeg"}

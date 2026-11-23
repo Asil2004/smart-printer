@@ -15,7 +15,7 @@
   // ── Sozlamalar ──────────────────────────────────────────
   const MAX_BYTES = 64 * 1024 * 1024;
   const EXTS = ['pdf', 'docx', 'png', 'jpg', 'jpeg'];
-  const MAX_COPIES = 10;
+  let MAX_COPIES = 50;   // /api/health dagi max_copies bilan yangilanadi
   const POLL_MS = 2000;
   const HDR = { 'ngrok-skip-browser-warning': 'true' };
 
@@ -184,7 +184,9 @@
     const has = !!S.file;
     $('startGrid').hidden = has;
     $('settingsGrid').hidden = !has;
-    $('copiesOut').textContent = S.copies;
+    const co = $('copiesOut');   // <input>: raqamni yozib ham kiritish mumkin
+    if (document.activeElement !== co) co.value = S.copies;
+    if ('max' in co) co.max = MAX_COPIES;
     $('copiesDec').disabled = S.copies <= 1;
     $('copiesInc').disabled = S.copies >= MAX_COPIES;
     document.querySelectorAll('[data-printer]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.printer === S.printerType)));
@@ -475,6 +477,7 @@
       if (ok) {
         S.priceBw = data.price_bw || S.priceBw;
         S.priceColor = data.price_color || S.priceColor;
+        if (data.max_copies) { MAX_COPIES = data.max_copies; renderSettings(); }
       }
     } catch (e) { /* ixtiyoriy */ }
   }
@@ -812,6 +815,13 @@
 
     $('copiesDec').addEventListener('click', () => update({ copies: S.copies - 1 }, 'Yangiladim, chekka qarang.'));
     $('copiesInc').addEventListener('click', () => update({ copies: S.copies + 1 }, 'Yangiladim, chekka qarang.'));
+    $('copiesOut').addEventListener('change', (e) => {
+      const n = parseInt(e.target.value, 10);
+      const lead = n > MAX_COPIES ? `Bir buyurtmada eng ko‘pi ${MAX_COPIES} nusxa.` : 'Yangiladim, chekka qarang.';
+      update({ copies: Number.isFinite(n) ? n : 1 }, lead);
+      e.target.value = S.copies;
+    });
+    $('copiesOut').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
     document.querySelectorAll('[data-printer]').forEach((b) => b.addEventListener('click', () => {
       const pt = b.dataset.printer;
       const msg = pt === 'thermal'

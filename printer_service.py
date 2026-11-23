@@ -139,7 +139,7 @@ class PrinterService:
     def _print_via_cups(self, ready_file: Path, options: dict) -> dict:
         """CUPS 'lp' buyrug'i orqali XP-58 IIL termal printerga yuboradi."""
         copies = int(options.get("copies", 1))
-        copies = max(1, min(copies, 10))
+        copies = max(1, min(copies, config.MAX_COPIES))
 
         page_ranges = str(options.get("page_ranges", "")).strip()
 
@@ -217,7 +217,7 @@ class PrinterService:
             pass
 
         printer = File(dev_file)
-        copies = max(1, min(copies, 10))
+        copies = max(1, min(copies, config.MAX_COPIES))
 
         for _ in range(copies):
             # 1. Agar target matn bo'lsa (yoki .txt fayl)
