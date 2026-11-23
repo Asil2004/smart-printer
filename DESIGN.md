@@ -1,47 +1,76 @@
-# Smart Printchi — UI qoidalari ("Bento + Chat")
+# Smart Printchi: UI qoidalari ("Ufq + Chek")
 
-**2026-11-15 dan boshlab loyihaning yagona UI uslubi shu.** Yangi ekran yoki o'zgarish shu qoidalarga mos bo'lsin.
-Asos: dizayn kanvasidagi 11-variant (03 "Bento" + 09 "Chat" birlashmasi).
+**2026-11-23 dan boshlab loyihaning yagona UI uslubi shu.** Yangi ekran yoki o'zgarish shu qoidalarga mos bo'lsin.
+Asos: `design-lab/` dagi V3 (V1 taste-skill + V2 charles-unslop dagi chek tizimi). Oldingi uslub "Bento + Chat" edi.
+
+**Konsepsiya:** har bir buyurtma XP-58 chiqaradigan chekdek o'qiladi: har bir tanlov bitta qator, jami pastda.
 
 ## Fayllar
 | Fayl | Vazifasi |
 |---|---|
-| `public/index.html` | Yagona sahifa (Netlify/GitHub Pages ham, Pi'dagi Flask `/` ham shuni beradi) |
-| `public/styles.css` | Dizayn tokenlari va barcha komponentlar (Tailwind/SweetAlert/FontAwesome **yo'q**) |
+| `public/index.html` | Yagona sahifa: landing + ilova (Netlify/GitHub Pages ham, Pi'dagi Flask `/` ham shuni beradi) |
+| `public/styles.css` | Tokenlar va barcha komponentlar (Tailwind yo'q). Oxiridagi "V3" bloklari chek, rejim, scrollbar |
 | `public/app.js` | Holat, chat tahlili, to'lov oqimi, shablonlar, admin |
-| `public/config.js` | Backend manzili (statik xostingda tunnel URL), karta/Click/Payme sozlamalari |
-| `templates/index.html` | `public/index.html` nusxasi (Flask endi uni ishlatmaydi — eski havolalar uchun) |
+| `public/receipt.js` | Buyurtma cheki va to'lov cheki qatorlari, light/dark tugmasi, landing tugmalari |
+| `public/config.js` | Backend manzili, karta/Click/Payme sozlamalari |
+| `design-lab/` | Dizayn variantlari (V1, V2, V3) va solishtirish sahifasi. `demo-mock.js` faqat shu yerda |
+| `templates/index.html` | Eski nusxa (Flask uni ishlatmaydi) |
 
 ## Tokenlar (`:root` da)
-- Fon `--bg #ECEEE8`, kartochka `--tile #FFFFFF`, to'q panel/matn `--ink #1B1F23`, izoh `--muted #5B6168`
-- Urg'u `--accent #C6F36B` — **faqat to'q matn bilan** (oq matn kontrasti yetmaydi)
-- Holat ranglari: `--ok`, `--warn`, `--err` (+ `-bg`)
-- Radiuslar: kartochka 20px, tugma 12px, chip/pill 999px. Shrift: DM Sans (bo'lmasa system-ui)
+- **Asosiy rejim light.** Dark faqat oy/quyosh tugmasi bilan (`data-theme="dark"`), tizimga ergashmaydi, tanlov `localStorage` da
+- Fon `--bg #F3F4F1`, kartochka `--tile #FFFFFF`, matn `--ink #161719`, izoh `--muted #5C6168`
+- Urg'u `--accent #C6F36B` (brend lime): asosiy harakat, tanlov, ufq nuri. **Faqat to'q matn bilan**
+- Qog'oz `--paper #FFFFFF`: chek dark rejimda ham oq qoladi. Muhr `--stamp #3F6E12`
+- Shrift: **Geist** (interfeys) + **Geist Mono** (chek, raqamlar, buyurtma kodi). Raqamlarda `tabular-nums`
+- Shrift shkalasi: 12 / 14 / 16 / 20 / 28 / 40-60. Manfiy harf oralig'i faqat 28px dan katta sarlavhalarda
+- Shakl: bosiladigan narsa pill (999px), konteyner 24px, ilova ichidagi kartochka 16px, input 14px. Qog'oz yirtilgan chetli
+- Ikonlar: Phosphor (regular), 18px; katta joylarda 24px. Emoji ishlatilmaydi
 
-## Tuzilish (yuqoridan pastga)
-1. **Sarlavha**: logo + printer holati (yashil/sariq/qizil nuqta + matn) + "Shablonlar →"
-2. **Chat**: fayl — o'ng tomonda to'q pufak; yordamchi — chapda oq pufak, oxirgi qatori **qalin xulosa**
-   (`barcha 12 bet · kitob · oq-qora · 1 nusxa = 6 000 so'm`). Yordamchi bitta pufakda yangilanadi, spam qilmaydi.
-3. **Tez javoblar** (chip): kontekstga qarab 3–4 ta ("2 nusxa", "Faqat 1–3 bet", "Albom qilib", "Boshqa fayl")
-4. **Bento kartochkalar** 2×2: Nusxa (−/+), Yo'nalish, Sahifalar (Hammasi/Tanlash), Rang. Tanlangan tugma — to'q fon.
-5. **To'q "Jami" paneli** + urg'u rangidagi "To'lash" tugmasi — doim pastda ko'rinadi
-6. **Yozish qatori**: qisqich (fayl) + matn + yuborish. Buyruqlar: `3 nusxa`, `5-8 bet`, `1,3,5`, `albom`, `kitob`,
-   `rangli`, `oq-qora`, `hammasi`, `to'lash`. Tushunilmasa — misollar bilan izoh.
+## Tuzilish
+**Kompyuter (1024px dan keng):** chapda landing, o'ngda ilova paneli ekranga yopishib turadi.
+**Telefon:** hero, ilova, Qanday ishlaydi, Narxlar, Shablonlar, footer.
 
-Tugmalar va yozma buyruq **bir xil holatni** o'zgartiradi — biri o'zgarsa ikkinchisi ham yangilanadi.
+Landing:
+1. **Hero**: sarlavha + bir jumla. Pastda ufq (21st "Horizon Glow" asosida): lime chet chapdan ochiladi, nur sekin suzadi,
+   scroll'da sayyora ko'tarilib sarlavha so'nadi. Kompyuterda hero tugmalari yo'q (ish ilovada)
+2. **Qanday ishlaydi**: Yuklang / To'lang / Oling, hero matnini takrorlamaydi
+3. **Narxlar**: chek ko'rinishida (A4 oq-qora, A4 rangli, chek 58 mm, shablonlar)
+4. **Shablonlar**: pill ro'yxat, bosilsa ilovadagi shablonlar sahifasi ochiladi
 
-## To'lov oynasi (pastdan chiquvchi sheet)
-Buyurtma kodi → to'q summa kartochkasi → usullar (QR / Click / Payme / Karta) → panel → holat qatori →
-"Bekor qilish" + "To'lov qildim". Holatlar: kutilmoqda (sariq) → tekshirilmoqda (ko'k) → chop etilmoqda (yashil) →
-natija oynasi (✓ "Hujjat tayyor!" yoki ! xato + buyurtma kodi). Summa **doim serverdan** olinadi.
+Ilova (yuqoridan pastga):
+1. **Sarlavha**: logo + printer holati + rejim tugmasi + "Shablonlar →". Shablonlar sahifasida "← Chop etish" chapda
+2. **Chat**: fayl (o'ngda to'q pufak) va yordamchi (chapda). Xulosa chatda emas, **chekda**
+3. **Tez javoblar** (chip)
+4. **Sozlamalar**: Printer, Nusxa, Yo'nalish, Sahifalar, Rang. **Shablon tanlanganda faqat Printer va Nusxa**
+5. **Buyurtma cheki**: har tanlov qator bo'lib bosiladi (faqat o'zgargan qator qayta bosiladi), jami + "To'lash".
+   Kompyuterda yozish qatori ustida yopishib turadi; telefonda sozlamalardan keyin
+6. **Yozish qatori** pastga yopishgan. Buyruqlar: `3 nusxa`, `5-8 bet`, `1,3,5`, `albom`, `kitob`, `rangli`, `oq-qora`,
+   `hammasi`, `to'lash`
+
+Tugmalar va yozma buyruq **bir xil holatni** o'zgartiradi.
+
+## Shablon oqimi
+Shablon bosilsa darhol to'lov ochilmaydi: u chop etish ekraniga hujjat kabi yuklanadi, nusxa (1-10) va printer tanlanadi,
+chek yangilanadi, keyin "To'lash". Serverga `copies` yuboriladi, summa `narx × bet × nusxa`.
+
+## To'lov oynasi
+Buyurtma kodi, **to'lov cheki** (ilova chekidagi qatorlar + jami), usullar (QR / Click / Payme / Karta), panel, holat qatori,
+"Bekor qilish" + "To'lov qildim". To'lov tasdiqlansa chekka **"To'landi" muhri** bosiladi. Natija oynasi ham chek ko'rinishida.
+Summa **doim serverdan** olinadi.
+
+## Motion
+- Faqat ma'no beradigan harakat: ufq (hero), chek qatorining bosilishi, muhr, kartochkalarning ketma-ket kirishi, summa o'zgarishi
+- `prefers-reduced-motion` da hammasi o'chadi, sahifa tayyor holatda ko'rinadi
+- Scroll'ga bog'langan hero animatsiyasi CSS `animation-timeline` (Chrome/Edge); boshqa brauzerlarda oddiy scroll
 
 ## Qoidalar
-- Teginish maydoni ≥ 44px; matn kontrasti ≥ 4.5:1; emoji ishlatilmaydi — ikonlar inline SVG (stroke)
+- Teginish maydoni 44px dan kam emas; matn kontrasti 4.5:1 dan kam emas
 - Haqiqiy `<button>`, `<input>` + `<label>`; dinamik hududlarda `aria-live`
-- Narx/betlar brauzerda faqat **taxminiy**; yakuniy summa `/api/order/create` javobidan
-- Admin: logoni 5 marta bosish yoki `/#admin` → shablon yuklash/o'chirish (`X-Admin-Token`)
-- Telefon birinchi: ustun kengligi ≤ 460px; kompyuterda markazda "telefon kartasi" bo'lib turadi
+- Em-dash (—) ishlatilmaydi; italic serif va sloganlar yo'q
+- Scrollbar ingichka va yumshoq, lekin yashirilmaydi; panel scroll'i sahifani sudramaydi
+- Narx/betlar brauzerda **taxminiy**; yakuniy summa `/api/order/create` javobidan
+- Admin: logoni 5 marta bosish yoki `/#admin`
 
-## Lokal demo
-`start_demo.bat` (Windows) → `http://localhost:5000`. `DEMO_AUTO_CONFIRM=1`: "To'lov qildim" 3 s da o'zi tasdiqlanadi,
-Telegram o'chiq, printer yo'q bo'lsa chop etish simulyatsiya. **Kioskda bu rejimni yoqmang.**
+## Lokal ko'rish
+- Haqiqiy server bilan: `start_demo.bat` → `http://localhost:5000`. `DEMO_AUTO_CONFIRM=1` kioskda yoqilmasin
+- Faqat dizayn: `python -m http.server 8770 --directory .` → `http://localhost:8770/design-lab/` (soxta backend bilan)

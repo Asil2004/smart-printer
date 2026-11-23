@@ -1,0 +1,357 @@
+/* =========================================================================
+   Smart Printchi · V2 (taste-skill + charles-unslop)
+   charles-unslop asosi: unslop (Damir Sokolovsky, CC BY 4.0), Emil Kowalski unslop-design,
+   Charles Liu "Removing AI Slop". Bu kreditni nusxalarda saqlang.
+
+   Konsepsiya: har bir buyurtma XP-58 chiqaradigan chekdek o'qiladi:
+   har bir tanlov bitta qator, jami pastda.
+   Dunyo: termal chek qog'ozi. Sovuq oq qog'oz, qora bosma, yirtish chizig'i, mono.
+   Shakl: "aniq, biroz mexanik" xarakter -> kichik radiuslar (boshqaruv 6px, kartochka 10px,
+          panel 14px), qog'ozda radius yo'q, chekkasi yirtilgan.
+   Reference'lar: horizonx.so (zich grotesk sarlavha, qora asosiy tugma, suzuvchi ilova),
+   21st Horizon Glow (ufq + yorug'lik + pastdan chiqish -> printer tirqishi va undan chiqqan chek),
+   Awwwards PRINT.WORK (narxlar katta mono).
+   ========================================================================= */
+
+:root {
+  color-scheme: light dark;
+  /* Sovuq "ink" ramp: termal qog'oz sovuq oq, krem emas */
+  --bg: #F3F4F4;
+  --card: #FFFFFF;
+  --raised: #EBEDEE;
+  --line: rgba(20, 22, 24, .09);
+  --line-strong: rgba(20, 22, 24, .16);
+  --text: #141618;
+  --text-2: #4A5056;
+  --muted: #6A7076;
+  --paper: #FFFFFF;          /* qog'oz har doim qog'oz: dark rejimda ham oq */
+  --paper-ink: #141618;
+  --paper-muted: #5E646A;
+  --accent: #C6F36B;         /* brend rangi: asosiy harakat, tanlov, muhr */
+  --on-accent: #141618;
+  --stamp: #3F6E12;          /* lime'ning to'q siyoh varianti, qog'ozda 4.5:1 dan yuqori */
+  --ok: #15803D; --ok-dot: #16A34A;
+  --warn: #92400E; --warn-bg: #FEF3C7;
+  --err: #B91C1C; --err-bg: #FEE2E2;
+  --info: #1E3A8A; --info-bg: #DBEAFE;
+  --lift: 0 8px 24px rgba(20, 22, 24, .07);
+  --r-ctl: 6px; --r-card: 10px; --r-panel: 14px;
+  --font: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0F1012; --card: #17181B; --raised: #212328;
+    --line: rgba(237, 238, 240, .08); --line-strong: rgba(237, 238, 240, .16);
+    --text: #EDEEF0; --text-2: #A9AEB5; --muted: #8C929A;
+    --ok: #4CC38A; --warn: #FBBF24; --warn-bg: #3A2A0B; --err: #F87171; --err-bg: #3B1414;
+    --info: #93C5FD; --info-bg: #13233F;
+    --lift: 0 8px 24px rgba(0, 0, 0, .45);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font: 400 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+p { margin: 0; }
+i.ph { font-size: 18px; line-height: 1; }
+:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+
+/* ══ Sahifa ═════════════════════════════════════════════════════════════ */
+.page { display: flex; flex-direction: column; }
+.info { padding: 64px 16px 32px; display: flex; flex-direction: column; gap: 80px; }
+@media (min-width: 1024px) {
+  .page { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 48px; max-width: 1280px; margin: 0 auto; padding: 0 40px; }
+  .info { grid-column: 1; grid-row: 1; padding: 0 0 40px; gap: 96px; }
+  .app-col { grid-column: 2; grid-row: 1; }
+  .app-col .app {
+    position: sticky; top: 24px; margin: 24px 0; height: calc(100dvh - 48px); min-height: 640px; max-height: 880px;
+    border-radius: var(--r-panel); border: 1px solid var(--line); box-shadow: var(--lift); overflow-y: auto;
+  }
+}
+
+/* ══ Hero: chap tomonda matn, pastda printer tirqishi va undan chiqqan narxlar cheki ══ */
+.hero { display: flex; flex-direction: column; gap: 48px; }
+.hero-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.hero h1 { margin: 0; max-width: 17ch; font-size: clamp(36px, 5vw, 64px); line-height: 1.04; font-weight: 500; letter-spacing: -0.03em; text-wrap: balance; }
+.hero-sub { max-width: 36rem; font-size: 18px; line-height: 1.55; color: var(--text-2); }
+.btn-primary { margin-top: 8px; min-height: 48px; padding: 0 20px; border: none; border-radius: var(--r-ctl); background: var(--text); color: var(--bg); font-weight: 500; transition: transform .15s var(--ease), opacity .15s; }
+.btn-primary:active { transform: scale(.98); }
+
+.feed { position: relative; display: flex; flex-direction: column; align-items: center; }
+.feed-window { width: min(100%, 340px); overflow: hidden; padding: 0 12px; }   /* qog'oz tirqish ortidan chiqadi */
+.slot {
+  position: relative; width: min(100%, 420px); height: 10px; border-radius: 5px;
+  background: linear-gradient(var(--text), color-mix(in oklab, var(--text) 70%, var(--bg)));
+}
+.slot::after { /* tirqish ichidagi yorug'lik: 21st ufqining nuri, shu yerda sababi bor */
+  content: ""; position: absolute; left: 8%; right: 8%; top: -18px; height: 22px; pointer-events: none;
+  background: radial-gradient(50% 100% at 50% 100%, color-mix(in oklab, var(--accent) 55%, transparent), transparent 70%);
+}
+
+/* ── Qog'oz (chek) ── */
+.paper, .receipt, .amount-tile, .result {
+  --zig: 8px;
+  background: var(--paper); color: var(--paper-ink);
+}
+.paper {
+  padding: 20px 20px 24px; font-family: var(--mono); font-size: 13px; line-height: 20px; letter-spacing: .01em;
+  box-shadow: var(--lift);
+  -webkit-mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+          mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+}
+.r-head { display: flex; justify-content: space-between; gap: 12px; font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--paper-muted); }
+.price-list, .r-lines { margin: 16px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.price-list div, .r-lines div { display: flex; justify-content: space-between; gap: 16px; }
+.price-list dt, .r-lines dt { text-transform: uppercase; }
+.price-list dd, .r-lines dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.price-list dt, .price-list dd { font-size: 13px; }
+.price-list div:first-child dd { font-weight: 500; }
+.r-perf { margin: 16px 0 12px; height: 2px; background: radial-gradient(circle, var(--line-strong) 1px, transparent 1.5px) 0 50% / 6px 2px repeat-x; filter: none; }
+.paper .r-perf { background-image: radial-gradient(circle, rgba(20,22,24,.35) 1px, transparent 1.5px); }
+.paper-foot { font-size: 12px; color: var(--paper-muted); text-transform: uppercase; }
+
+/* Chek tirqishdan bir marta chiqadi (qog'oz yo'qolmaydi, faqat suriladi) */
+@media (prefers-reduced-motion: no-preference) {
+  .feed-window .paper { animation: feed 1.4s var(--ease) .3s both; }
+}
+@keyframes feed { from { transform: translateY(102%); } }
+
+@media (min-width: 1024px) {
+  .hero { position: relative; min-height: calc(100dvh - 24px); margin-top: 24px; padding: 96px 0 0; }
+  .hero h1 { max-width: 18ch; font-size: clamp(40px, 4.4vw, 60px); }
+  .hero .btn-primary { display: none; }   /* fayl tanlash o'ngdagi ilovada bor: bitta ish uchun bitta joy */
+  .feed { position: absolute; left: 0; right: 0; bottom: 0; align-items: flex-end; }
+  .feed-window { width: 420px; margin-right: 24px; }
+  .paper { font-size: 15px; line-height: 26px; padding: 24px 28px 32px; }
+  .price-list dt, .price-list dd { font-size: 15px; }
+  .slot { width: 100%; }
+  .slot::after { left: auto; right: 0; width: 440px; }
+}
+
+/* ── Shablonlar ro'yxati ── */
+.info h2 { margin: 0; font-size: 28px; line-height: 1.15; font-weight: 500; letter-spacing: -0.02em; }
+.section-sub { margin-top: 8px; color: var(--text-2); }
+.tpl-list ul { list-style: none; margin: 24px 0 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: 4px 32px; }
+@media (min-width: 720px) { .tpl-list ul { grid-template-columns: 1fr 1fr; } }
+.tpl-list button {
+  width: 100%; min-height: 44px; padding: 0; border: none; background: none; text-align: left;
+  font-size: 18px; color: var(--text); display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.tpl-list button::after { content: "→"; color: var(--muted); transition: transform .15s var(--ease), color .15s; }
+.tpl-list button:hover::after { transform: translateX(3px); color: var(--text); }
+.foot { font-size: 13px; color: var(--muted); }
+
+/* ══ Ilova ═════════════════════════════════════════════════════════════ */
+.app { min-height: 100dvh; background: var(--bg); display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.view { display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.spacer { flex: 1; }
+
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 12px; background: none; border: none; padding: 0; text-align: left; min-width: 0; }
+.brand-text { min-width: 0; }
+.brand-mark { width: 36px; height: 36px; border-radius: var(--r-ctl); background: var(--text); color: var(--accent); display: grid; place-items: center; flex: none; }
+.brand-name { font-size: 16px; font-weight: 600; line-height: 20px; }
+.status { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--muted); }
+#printerStatusText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex: none; }
+.status.ok { color: var(--ok); } .status.ok .dot { background: var(--ok-dot); }
+.status.warn { color: var(--warn); } .status.warn .dot { background: #D97706; }
+.status.err { color: var(--err); } .status.err .dot { background: #DC2626; }
+.link-btn { flex: none; white-space: nowrap; min-height: 36px; padding: 0 12px; border-radius: var(--r-ctl); border: 1px solid var(--line-strong); background: var(--card); font-size: 14px; font-weight: 500; transition: background-color .15s; }
+.link-btn:hover { background: var(--raised); }
+
+/* Chat: chekdagi xulosa bilan takrorlanmasin, faqat yordamchi gapi qoladi */
+.chat { display: flex; flex-direction: column; gap: 8px; }
+.bubble { max-width: 88%; font-size: 14px; line-height: 20px; padding: 12px; margin: 0; }
+.bubble.bot { align-self: flex-start; background: var(--card); color: var(--text-2); border-radius: 2px var(--r-card) var(--r-card) var(--r-card); display: flex; flex-direction: column; gap: 4px; }
+.bubble.bot strong { display: none; }
+.bubble.user { align-self: flex-end; background: var(--text); color: var(--bg); border-radius: var(--r-card) 2px var(--r-card) var(--r-card); }
+.file-bubble { align-self: flex-end; background: var(--text); border-radius: var(--r-card) 2px var(--r-card) var(--r-card); padding: 8px 12px 8px 8px; display: flex; align-items: center; gap: 12px; max-width: 88%; }
+.file-badge { width: 32px; height: 40px; border-radius: 4px; background: var(--paper); color: var(--paper-ink); font-family: var(--mono); font-size: 10px; display: grid; place-items: center; flex: none; text-transform: uppercase; }
+.file-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.file-name { margin: 0; font-size: 14px; font-weight: 500; color: var(--bg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-sub { margin: 0; font-size: 12px; color: color-mix(in oklab, var(--bg) 70%, var(--text)); font-variant-numeric: tabular-nums; }
+.typing { display: inline-flex; gap: 4px; }
+.typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }   /* haqiqatan "ishlayapti" holati, shuning uchun qoldi */
+.typing span:nth-child(2) { animation-delay: .2s; } .typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 36px; padding: 0 12px; border-radius: var(--r-ctl); border: 1px solid var(--line-strong); background: var(--card); font-size: 13px; transition: background-color .15s; }
+.chip:hover { background: var(--raised); }
+.chip:active { transform: scale(.98); }
+
+/* Sozlamalar */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tile { background: var(--card); border-radius: var(--r-card); padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tile.span-2, .span-2 { grid-column: span 2; }
+.tile-label { margin: 0; font-size: 12px; line-height: 16px; color: var(--muted); }
+.stepper { display: flex; align-items: center; justify-content: space-between; }
+.stepper output { font-family: var(--mono); font-size: 28px; line-height: 1; min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+.sq { width: 44px; height: 44px; border-radius: var(--r-ctl); border: 1px solid var(--line-strong); background: var(--raised); display: grid; place-items: center; flex: none; transition: background-color .15s, transform .15s var(--ease); }
+.sq:active { transform: scale(.97); }
+.sq.dark { border-color: transparent; background: var(--text); color: var(--bg); }
+.sq:disabled { opacity: .4; }
+.seg { display: flex; gap: 4px; padding: 4px; border-radius: calc(var(--r-ctl) + 4px); background: var(--raised); }
+.seg button { flex: 1; min-width: 0; white-space: nowrap; min-height: 40px; border-radius: var(--r-ctl); border: none; background: transparent; font-size: 13px; color: var(--text-2); padding: 0 4px; transition: background-color .15s, color .15s; }
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 500; }
+.seg button:disabled { opacity: .45; }
+.seg-printer button { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; min-height: 52px; padding: 0 12px; text-align: left; }
+.seg-printer b { font-size: 14px; font-weight: 500; }
+.seg-printer small { font-family: var(--mono); font-size: 12px; opacity: .7; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.field { height: 44px; border-radius: var(--r-ctl); border: 1px solid var(--line-strong); background: var(--card); padding: 0 12px; font-size: 14px; width: 100%; }
+.field::placeholder { color: var(--muted); }
+.field:focus { border-color: var(--text); outline: none; }
+.hint { margin: 0; font-size: 12px; line-height: 16px; color: var(--muted); }
+.hint.err { color: var(--err); }
+
+.drop {
+  grid-column: span 2; background: var(--card); border-radius: var(--r-card); border: 1px solid var(--line);
+  padding: 32px 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center;
+  min-height: 184px; transition: border-color .15s, background-color .15s;
+}
+.drop:hover, .drop.over { border-color: var(--text); }
+.drop-icon.ph { font-size: 24px; color: var(--text-2); margin-bottom: 4px; }
+.drop-title { font-size: 18px; font-weight: 500; }
+.tpl-mini { background: var(--card); border: none; border-radius: var(--r-card); padding: 12px; display: flex; flex-direction: column; gap: 4px; text-align: left; min-height: 80px; transition: background-color .15s; }
+.tpl-mini:hover, .tpl:hover { background: var(--raised); }
+.tpl-mini .ico, .tpl .ico { display: none; }
+.tpl-mini b { font-size: 14px; font-weight: 500; }
+.tpl-mini span { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+/* ── Moment: buyurtma cheki ── */
+.receipt {
+  padding: 16px 16px 12px; font-family: var(--mono); font-size: 12px; line-height: 18px;
+  box-shadow: var(--lift);
+  -webkit-mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+          mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+}
+.receipt .r-head { padding-top: 4px; }
+.r-lines { margin-top: 12px; gap: 2px; }
+.r-lines dd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 64%; }
+.receipt .r-perf { background-image: radial-gradient(circle, rgba(20,22,24,.35) 1px, transparent 1.5px); margin: 12px 0 8px; }
+.r-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.r-total-k { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--paper-muted); }
+.r-total-v { font-size: 28px; line-height: 32px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.btn-accent { min-height: 48px; padding: 0 24px; border-radius: var(--r-ctl); border: none; background: var(--accent); font-family: var(--font); font-size: 15px; font-weight: 600; color: var(--on-accent); flex: none; transition: transform .15s var(--ease), background-color .15s; }
+.btn-accent:active { transform: scale(.98); }
+.btn-accent:disabled { background: #E7E9EA; color: #6A7076; }
+
+/* Qator bosilishi: termal kallak chapdan o'ngga yuradi. Faqat o'zgargan qator */
+@media (prefers-reduced-motion: no-preference) {
+  .r-lines .printed { animation: print .32s steps(12, end) both; }
+  .r-lines .printed:nth-child(2) { animation-delay: .04s; } .r-lines .printed:nth-child(3) { animation-delay: .08s; }
+  .r-lines .printed:nth-child(4) { animation-delay: .12s; } .r-lines .printed:nth-child(5) { animation-delay: .16s; }
+  .r-lines .printed:nth-child(6) { animation-delay: .2s; }
+}
+@keyframes print { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+/* Telefonda chek ixcham: qatorlar ikki ustunda */
+@media (max-width: 1023px) {
+  .r-lines { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
+  .r-lines div { flex-direction: column; gap: 0; }
+  .r-lines dt { font-size: 11px; color: var(--paper-muted); }
+  .r-lines dd { text-align: left; max-width: 100%; }
+}
+
+.composer { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card); padding: 4px; }
+.composer input { flex: 1; min-width: 0; height: 44px; border: none; background: transparent; padding: 0 8px; font-size: 14px; outline: none; }
+.composer input::placeholder { color: var(--muted); }
+.composer .sq { border-color: transparent; }
+@media (max-width: 1023px) {
+  .composer { position: sticky; bottom: 8px; box-shadow: var(--lift); }
+  /* Telefonda yordamchining javobi chekning o'zi: chek suhbatdan keyin, sozlamalar ostida emas */
+  #viewPrint > .chat { order: 0; } #viewPrint > .receipt { order: 1; } #viewPrint > .chips { order: 2; }
+  #viewPrint > .grid { order: 3; } #viewPrint > .spacer { order: 4; } #viewPrint > .composer { order: 5; }
+  #viewPrint:has(#startGrid:not([hidden])) > .receipt { display: none; }
+}
+
+/* Shablonlar ko'rinishi */
+.view-title { margin: 4px 0 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
+.tpl { background: var(--card); border: none; border-radius: var(--r-card); padding: 12px; display: flex; flex-direction: column; gap: 8px; text-align: left; min-height: 132px; transition: background-color .15s; }
+.tpl b { font-size: 15px; font-weight: 500; line-height: 20px; }
+.tpl .desc { font-size: 13px; color: var(--muted); line-height: 18px; flex: 1; }
+.tpl .price { font-family: var(--mono); font-size: 12px; }
+.empty { grid-column: span 2; background: var(--card); border-radius: var(--r-card); padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
+
+/* ══ Pastki oynalar ══════════════════════════════════════════════════ */
+.overlay { position: fixed; inset: 0; background: rgba(15, 16, 18, .5); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+.sheet { width: 100%; max-width: 440px; max-height: 94dvh; overflow-y: auto; background: var(--bg); border-radius: var(--r-panel) var(--r-panel) 0 0; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: up .4s var(--ease); } }
+@media (min-width: 640px) { .overlay { align-items: center; } .sheet { border-radius: var(--r-panel); } }
+@keyframes up { from { transform: translateY(24px); opacity: .6 } to { transform: none; opacity: 1 } }
+.grabber { width: 36px; height: 4px; border-radius: 2px; background: var(--line-strong); align-self: center; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; }
+.sheet-title { margin: 0; font-size: 20px; font-weight: 500; }
+.order-code { font-family: var(--mono); font-size: 13px; padding: 4px 8px; border-radius: 4px; background: var(--raised); }
+
+/* To'lov summasi ham qog'ozda; tasdiqlansa muhr bosiladi */
+.amount-tile {
+  position: relative; padding: 20px 16px 16px; display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+  -webkit-mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+          mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+}
+.amount-tile .paybar-label { font-family: var(--mono); font-size: 12px; color: var(--paper-muted); text-transform: uppercase; }
+.amount-big { font-family: var(--mono); font-size: 36px; line-height: 40px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stamp {
+  position: absolute; right: 16px; top: 16px; padding: 4px 12px; border: 2px solid var(--stamp); border-radius: 4px;
+  font-family: var(--mono); font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--stamp);
+  transform: rotate(-8deg); opacity: 0; pointer-events: none;
+}
+.sheet:has(.pay-status.ok) .stamp { opacity: .9; }
+@media (prefers-reduced-motion: no-preference) {
+  .sheet:has(.pay-status.ok) .stamp { animation: stamp .22s var(--ease) both; }
+}
+@keyframes stamp { from { opacity: 0; transform: rotate(-8deg) scale(1.25); } }
+
+.methods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: calc(var(--r-ctl) + 4px); background: var(--raised); }
+.methods button { min-height: 40px; border-radius: var(--r-ctl); border: none; background: transparent; font-size: 13px; color: var(--text-2); }
+.methods button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 500; }
+.pay-panel { background: var(--card); border-radius: var(--r-card); padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.pay-panel img { width: 192px; height: 192px; border-radius: 4px; background: #FFFFFF; }
+.pay-panel .card-no { font-family: var(--mono); font-size: 20px; margin: 0; font-variant-numeric: tabular-nums; }
+.pay-panel .holder { margin: 0; font-size: 13px; color: var(--muted); }
+.pay-link { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 20px; border-radius: var(--r-ctl); background: var(--text); color: var(--bg); font-weight: 500; font-size: 14px; text-decoration: none; width: 100%; }
+.pay-status { display: flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 12px; border-radius: var(--r-ctl); font-size: 13px; background: var(--warn-bg); color: var(--warn); text-align: center; }
+.pay-status.info { background: var(--info-bg); color: var(--info); }
+.pay-status.ok { background: color-mix(in oklab, var(--ok-dot) 14%, var(--bg)); color: var(--ok); }
+.pay-status.err { background: var(--err-bg); color: var(--err); }
+.row2 { display: grid; grid-template-columns: 1fr 1.6fr; gap: 8px; }
+.btn-dark { min-height: 48px; padding: 0 20px; border-radius: var(--r-ctl); border: none; background: var(--text); font-size: 15px; font-weight: 500; color: var(--bg); width: 100%; }
+.btn-dark:disabled { opacity: .45; }
+.btn-ghost { min-height: 48px; padding: 0 16px; border-radius: var(--r-ctl); border: 1px solid var(--line-strong); background: var(--card); font-size: 14px; font-weight: 500; width: 100%; }
+
+/* Natija ham chek: "chop etildi" qog'ozi */
+.result {
+  align-items: center; text-align: center; padding: 32px 20px 20px; gap: 12px;
+  -webkit-mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+          mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / var(--zig) 100%;
+}
+.sheet.result { background: var(--paper); color: var(--paper-ink); }
+.result-icon { width: 64px; height: 64px; border-radius: var(--r-card); background: var(--accent); display: grid; place-items: center; }
+.result-icon.err { background: var(--err-bg); }
+.result h2 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.02em; }
+.result p { margin: 0; font-size: 14px; color: var(--paper-muted); line-height: 20px; }
+.result .btn-dark { background: var(--paper-ink); color: var(--paper); }
+
+.admin-list { display: flex; flex-direction: column; gap: 4px; }
+.admin-item { background: var(--card); border-radius: var(--r-card); padding: 12px; display: flex; align-items: center; gap: 12px; }
+.admin-item div { flex: 1; min-width: 0; }
+.admin-item b { display: block; font-size: 14px; font-weight: 500; }
+.admin-item span { font-size: 12px; color: var(--muted); }
+.admin-item button { min-height: 36px; padding: 0 12px; border-radius: var(--r-ctl); border: 1px solid color-mix(in oklab, var(--err) 40%, transparent); background: var(--err-bg); color: var(--err); font-size: 13px; }
+.form { display: flex; flex-direction: column; gap: 8px; }
+.form label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.form input[type="file"] { padding-top: 10px; }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 420px; width: calc(100% - 32px); background: var(--text); color: var(--bg); border-radius: var(--r-card); padding: 12px 16px; font-size: 14px; line-height: 20px; z-index: 80; box-shadow: var(--lift); }
+.toast.err { background: #7F1D1D; color: #FFF5F5; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

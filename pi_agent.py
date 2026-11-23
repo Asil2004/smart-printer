@@ -23,6 +23,9 @@ import tempfile
 import subprocess
 from pathlib import Path
 
+# Bitta buyurtmada eng ko'p nusxa (server bilan bir xil: .env MAX_COPIES)
+MAX_COPIES = max(1, int(os.environ.get("MAX_COPIES", 50)))
+
 # Kerakli kutubxonalar
 try:
     import requests
@@ -362,7 +365,7 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     data.extend("--------------------------------\n".encode("utf-8"))
     data.extend(FEED_CUT)
 
-    for _ in range(max(1, min(copies, 5))):
+    for _ in range(max(1, min(copies, MAX_COPIES))):
         ok = write_to_thermal_port(port, data)
         if not ok:
             return False

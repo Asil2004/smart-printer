@@ -57,6 +57,7 @@ ALLOWED_EXTENSIONS = {"pdf", "docx", "png", "jpg", "jpeg"}
 # Narxlar (so'mda) - Jonli kalkulyator uchun
 PRICE_PER_PAGE_BW = 250      # Oq-qora bir sahifa
 PRICE_PER_PAGE_COLOR = 400   # Rangli bir sahifa
+MAX_COPIES = config.MAX_COPIES  # bitta buyurtmada eng ko'p nusxa
 FILE_RETENTION_SECONDS = 1800  # 30 daqiqadan so'ng fayllarni o'chirish
 
 app = Flask(__name__, template_folder="templates", static_folder="public", static_url_path="")
@@ -299,6 +300,7 @@ def health_check():
         "printer": main_printer or "Printer ulanmagan",
         "printers": printers,           # Barcha printerlar holati (UI uchun)
         "price_bw": PRICE_PER_PAGE_BW,
+        "max_copies": MAX_COPIES,
         "price_color": PRICE_PER_PAGE_COLOR,
         "payment_verification": payments.REQUIRE_PAYMENT,
         "confirm_via": "telegram" if payments.telegram_enabled() else "admin",
@@ -371,7 +373,7 @@ def print_document():
 
     try:
         copies = int(request.form.get("copies", 1))
-        copies = max(1, min(copies, 10))
+        copies = max(1, min(copies, MAX_COPIES))
     except ValueError:
         copies = 1
 
@@ -817,7 +819,7 @@ def create_pending_order():
                         "message": "Printer hozir band (qog'oz yoki ulanish). Iltimos, birozdan so'ng urinib ko'ring."}), 503
     form   = request.form if request.form else (request.get_json(silent=True) or {})
     source = form.get("source", "file")
-    copies = _int_form(form, "copies", 1, 1, 10)
+    copies = _int_form(form, "copies", 1, 1, MAX_COPIES)
     color_mode = "color" if form.get("color_mode") == "color" else "gray"
     printer_type = form.get("printer_type", "laser_bw")
     order_id = uuid.uuid4().hex[:6].upper()
@@ -1244,7 +1246,7 @@ def print_template():
         return blocked
     data        = request.get_json() or {}
     template_id = data.get("template_id", "")
-    copies      = max(1, min(int(data.get("copies", 1)), 10))
+    copies      = max(1, min(int(data.get("copies", 1)), MAX_COPIES))
     color_mode  = data.get("color_mode", "gray")
 
     # Shablon topish
