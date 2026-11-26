@@ -124,8 +124,8 @@ def set_status(order: dict, status: str, **extra):
 def protected_paths() -> set:
     """Faol buyurtmalarning fayllari — tozalash oqimi ularni o'chirmasligi kerak."""
     with _lock:
-        return {o.get("saved_path") for o in orders.values()
-                if o.get("status") in ACTIVE_STATES + ("FAILED",)}
+        active = [o for o in orders.values() if o.get("status") in ACTIVE_STATES + ("FAILED",)]
+        return {o.get("saved_path") for o in active} | {o.get("ready_file") for o in active if o.get("ready_file")}
 
 
 def expire_old_orders():

@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
-<link rel="stylesheet" href="styles.css?v=3.1.0">
+<link rel="stylesheet" href="styles.css?v=3.2.0">
 </head>
 <body>
 <div class="page">
@@ -99,7 +99,7 @@
             <input id="msgInput" placeholder="Masalan: 2 nusxa, 5-8 bet, albom" enterkeyhint="send">
             <button class="round dark" type="submit" aria-label="Yuborish"><i class="ph ph-arrow-right" aria-hidden="true"></i></button>
           </form>
-        <input type="file" id="fileInput" accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+        <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp,.png,.jpg,.jpeg,.webp,.bmp,.gif,.tif,.tiff,.heic,.heif,application/pdf,image/*,text/plain" hidden>
       </main>
 
       <main class="view" id="viewTemplates" hidden>
@@ -117,7 +117,7 @@
       <div class="horizon" aria-hidden="true"><span class="halo"></span><span class="rim"></span><span class="orb"></span></div>
       <div class="hero-copy">
         <h1 id="heroTitle">Faylni yuklang, qog‘ozni kioskdan oling</h1>
-        <p class="hero-sub">PDF, Word yoki rasm. Betlar va nusxani tanlaysiz, kartaga o‘tkazma bilan to‘laysiz.</p>
+        <p class="hero-sub">PDF, Word, Excel, PowerPoint yoki rasm. Betlar va nusxani tanlaysiz, kartaga o‘tkazma bilan to‘laysiz.</p>
         <div class="hero-cta">
           <button class="btn-primary" type="button" data-act="pick"><i class="ph ph-file-arrow-up" aria-hidden="true"></i>Faylni tanlang</button>
           <button class="btn-quiet" type="button" data-act="templates">Shablonlar</button>
@@ -155,7 +155,7 @@
           <div><dt>Shablonlar</dt><dd>250 so‘m dan</dd></div>
         </dl>
         <div class="r-perf" aria-hidden="true"></div>
-        <p class="paper-foot">PDF DOCX JPG PNG, 64 MB gacha</p>
+        <p class="paper-foot">PDF, Word, Excel, PowerPoint, matn, rasm — 64 MB gacha</p>
       </article>
     </section>
 
@@ -247,9 +247,9 @@
 
 <div class="toast" id="toast" role="alert" hidden></div>
 
-<script src="config.js?v=3.1.0"></script>
-<script src="app.js?v=3.1.0"></script>
-<script src="receipt.js?v=3.1.0"></script>
+<script src="config.js?v=3.2.0"></script>
+<script src="app.js?v=3.2.0"></script>
+<script src="receipt.js?v=3.2.0"></script>
 <script>
   /* Landing tugmalari ilovaning o'z boshqaruvlarini chaqiradi: holat bitta joyda qoladi */
   /* Bo'limlar ko'rinish maydoniga kirganda bir marta paydo bo'ladi (scroll listener emas) */

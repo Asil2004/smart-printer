@@ -50,7 +50,18 @@ UPLOAD_FOLDER.mkdir(exist_ok=True)
 SERVER_HOST = os.environ.get("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.environ.get("SERVER_PORT", 5000))
 MAX_CONTENT_LENGTH = 64 * 1024 * 1024  # 64 MB
-ALLOWED_EXTENSIONS = {"pdf", "docx", "png", "jpg", "jpeg"}
+# Qabul qilinadigan formatlar: hammasi serverda PDF ga aylantiriladi, Pi esa faqat PDF oladi
+OFFICE_EXTENSIONS = {"doc", "docx", "odt", "rtf", "txt",          # matn (LibreOffice Writer)
+                     "xls", "xlsx", "ods", "csv",                 # jadval (Calc)
+                     "ppt", "pptx", "odp"}                        # taqdimot (Impress)
+IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff", "heic", "heif"}
+ALLOWED_EXTENSIONS = {"pdf"} | OFFICE_EXTENSIONS | IMAGE_EXTENSIONS
+
+try:  # iPhone rasmlari (HEIC/HEIF)
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except Exception:
+    pass
 
 # Narxlar (so'mda) - Jonli kalkulyator uchun
 PRICE_PER_PAGE_BW = 250      # Oq-qora bir sahifa
@@ -110,7 +121,8 @@ def get_default_printer() -> str:
 
 def convert_docx_to_pdf(docx_path: Path) -> Path:
     """
-    DOCX faylni LibreOffice headless orqali PDF ga aylantiradi.
+    Ofis faylini (DOC/DOCX/ODT/RTF/TXT/XLS/XLSX/ODS/CSV/PPT/PPTX/ODP) LibreOffice headless
+    orqali PDF ga aylantiradi. (Nomi tarixiy — barcha ofis formatlari uchun.)
     """
     docx_path = Path(docx_path).resolve()
     out_dir = docx_path.parent.resolve()
@@ -119,7 +131,7 @@ def convert_docx_to_pdf(docx_path: Path) -> Path:
     libreoffice_cmd = shutil.which("libreoffice") or shutil.which("soffice")
     if not libreoffice_cmd:
         raise RuntimeError(
-            "LibreOffice tizimda topilmadi! Iltimos, o'rnating: sudo apt install -y libreoffice-writer"
+            "LibreOffice tizimda topilmadi! O'rnating: libreoffice-writer, libreoffice-calc, libreoffice-impress"
         )
 
     # Avval aylantirilgan va fayldan yangi bo'lsa — qayta aylantirmaymiz
@@ -156,48 +168,51 @@ def convert_docx_to_pdf(docx_path: Path) -> Path:
             ]
             res = subprocess.run(cmd_filter, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180)
     except subprocess.TimeoutExpired:
-        raise RuntimeError("DOCX konvertatsiyasi 3 daqiqada tugamadi")
+        raise RuntimeError("Faylni PDF ga aylantirish 3 daqiqada tugamadi")
     finally:
         shutil.rmtree(profile_dir, ignore_errors=True)
 
     if not expected_pdf.exists():
         err_msg = (res.stderr.strip() or res.stdout.strip() or "Noma'lum xatolik")
         if "source file could not be loaded" in err_msg:
-            err_msg = "LibreOffice-Writer o'rnatilmagan! Terminalda: sudo apt install -y libreoffice-writer"
-        raise RuntimeError(f"DOCX konvertatsiyasida xatolik: {err_msg}")
+            err_msg = "Faylni ochib bo'lmadi (buzilgan yoki LibreOffice'ning kerakli qismi o'rnatilmagan)"
+        raise RuntimeError(f"Faylni PDF ga aylantirishda xatolik: {err_msg}")
 
     return expected_pdf
 
 
 def convert_image_to_pdf(image_path: Path) -> Path:
     """
-    Rasmni (PNG/JPG) A4 formatidagi markazlashtirilgan PDF ga aylantiradi.
+    Rasmni (PNG/JPG/WEBP/BMP/GIF/TIFF/HEIC) A4 formatidagi markazlashtirilgan PDF ga aylantiradi.
+    Ko'p sahifali TIFF/GIF — har kadr alohida bet. Oq-qora printer uchun kulrangga o'tkaziladi
+    (PDF kichikroq va Pi'da tezroq tayyorlanadi).
     """
+    from PIL import ImageOps, ImageSequence
     output_pdf = image_path.with_suffix(".pdf")
     # A4 300 DPI: 2480 x 3508 piksel
     a4_width, a4_height = 2480, 3508
+    pages = []
 
-    with Image.open(image_path) as img:
-        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-            rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-            if img.mode == "P":
+    with Image.open(image_path) as src:
+        frames = ImageSequence.Iterator(src) if getattr(src, "n_frames", 1) > 1 else [src]
+        for frame in list(frames)[:200]:
+            img = ImageOps.exif_transpose(frame.copy())   # telefon rasmi burilgan bo'lsa to'g'rilanadi
+            if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
                 img = img.convert("RGBA")
-            rgb_img.paste(img, mask=img.split()[3] if len(img.split()) >= 4 else None)
-        else:
-            rgb_img = img.convert("RGB")
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            img = img.convert("L")
+            ratio = min(a4_width / img.width, a4_height / img.height)
+            new_w, new_h = max(1, int(img.width * ratio)), max(1, int(img.height * ratio))
+            canvas = Image.new("L", (a4_width, a4_height), 255)
+            canvas.paste(img.resize((new_w, new_h), Image.Resampling.LANCZOS),
+                         ((a4_width - new_w) // 2, (a4_height - new_h) // 2))
+            pages.append(canvas)
 
-        img_w, img_h = rgb_img.size
-        ratio = min(a4_width / img_w, a4_height / img_h)
-        new_w = int(img_w * ratio)
-        new_h = int(img_h * ratio)
-
-        resized_img = rgb_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        canvas = Image.new("RGB", (a4_width, a4_height), (255, 255, 255))
-        pos_x = (a4_width - new_w) // 2
-        pos_y = (a4_height - new_h) // 2
-        canvas.paste(resized_img, (pos_x, pos_y))
-        canvas.save(output_pdf, "PDF", resolution=300.0)
-
+    if not pages:
+        raise RuntimeError("Rasmni o'qib bo'lmadi")
+    pages[0].save(output_pdf, "PDF", resolution=300.0, save_all=True, append_images=pages[1:])
     return output_pdf
 
 
@@ -208,12 +223,42 @@ def prepare_printable_file(file_path: Path) -> Path:
     suffix = file_path.suffix.lower()
     if suffix == ".pdf":
         return file_path
-    elif suffix == ".docx":
+    elif suffix.lstrip(".") in OFFICE_EXTENSIONS:
         return convert_docx_to_pdf(file_path)
-    elif suffix in [".png", ".jpg", ".jpeg"]:
+    elif suffix.lstrip(".") in IMAGE_EXTENSIONS:
         return convert_image_to_pdf(file_path)
     else:
         raise ValueError(f"Qo'llab-quvvatlanmaydigan fayl formati: {suffix}")
+
+
+def _file_sha(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:24]
+
+
+def convert_cached(path: Path) -> Path:
+    """
+    Faylni chop etishga tayyor PDF ga aylantiradi va natijani fayl mazmuni (sha256) bo'yicha
+    keshlaydi: sahifa sanashda aylantirilgan fayl buyurtmada qayta aylantirilmaydi.
+    """
+    path = Path(path)
+    if path.suffix.lower() == ".pdf":
+        return path
+    cache = UPLOAD_FOLDER / f"conv_{_file_sha(path)}.pdf"
+    if cache.exists() and cache.stat().st_size > 0:
+        os.utime(cache)            # tozalash oqimi yangi deb hisoblasin
+        return cache
+    pdf = prepare_printable_file(path)
+    tmp = cache.with_suffix(f".{uuid.uuid4().hex[:6]}.tmp")
+    shutil.copyfile(pdf, tmp)
+    tmp.replace(cache)             # bir vaqtda ikki so'rov bo'lsa ham butun fayl
+    if pdf.resolve() != cache.resolve():
+        pdf.unlink(missing_ok=True)
+    return cache
 
 
 def get_pdf_page_count(pdf_path: Path) -> int:
@@ -326,9 +371,7 @@ def inspect_file():
     except Exception as err:
         logger.error(f"Faylni tahlil qilishda xatolik: {err}")
     finally:
-        temp_path.unlink(missing_ok=True)
-        if ext == "docx":
-            temp_path.with_suffix(".pdf").unlink(missing_ok=True)  # konvertatsiya nusxasi
+        temp_path.unlink(missing_ok=True)   # PDF nusxasi keshda qoladi (buyurtmada qayta ishlatiladi)
 
     return jsonify({
         "success": True,
@@ -565,15 +608,15 @@ def get_recent_orders():
 # BUYURTMA VA TO'LOV TASDIG'I (payments.py bilan)
 # ═══════════════════════════════════════════════════════════
 def _count_file_pages(path: Path) -> int:
-    """PDF / DOCX / rasm sahifalar sonini aniqlaydi (narx uchun)."""
+    """Har qanday qabul qilingan fayl sahifalari soni (narx uchun) — chop etiladigan PDF bo'yicha."""
     ext = path.suffix.lower()
     if ext == ".pdf":
         return get_pdf_page_count(path)
+    try:
+        return get_pdf_page_count(convert_cached(path))
+    except Exception as e:
+        logger.warning(f"{ext} ni PDF ga aylantirib sanab bo'lmadi: {e}")
     if ext == ".docx":
-        try:
-            return get_pdf_page_count(convert_docx_to_pdf(path))
-        except Exception as e:
-            logger.warning(f"DOCX ni PDF ga aylantirib sanab bo'lmadi, app.xml ishlatiladi: {e}")
         import zipfile
         import xml.etree.ElementTree as ET
         try:
@@ -720,7 +763,8 @@ def _start_print(order: dict):
     if IS_CLOUD_SERVER:
         # Bulutda (Render.com) ishlayotgan bo'lsa: faylni yuqori tezlikda PDF ga tayyorlaymiz
         try:
-            ready_file = prepare_printable_file(Path(order["saved_path"]))
+            ready = order.get("ready_file")
+            ready_file = Path(ready) if ready and Path(ready).exists() else convert_cached(Path(order["saved_path"]))
             order["ready_file"] = str(ready_file)
             payments.set_status(order, "PAID", ready=True, note="Raspberry Pi printeriga uzatilmoqda…")
             logger.info(f"Bulut: Buyurtma #{order['id']} agent uchun tayyorlandi: {ready_file}")
@@ -805,6 +849,10 @@ def create_pending_order():
         if not tmpl or not tmpl.get("file_exists"):
             return jsonify({"success": False, "message": "Shablon topilmadi"}), 404
         pages = int(tmpl.get("pages", 1))
+        try:
+            order["ready_file"] = str(convert_cached(TEMPLATES_DIR / tmpl["file"]))
+        except Exception as e:
+            logger.warning(f"Shablonni oldindan tayyorlab bo'lmadi (to'lovdan keyin qayta urinadi): {e}")
         order.update(filename=tmpl["name"], saved_path=str(TEMPLATES_DIR / tmpl["file"]),
                      pages=pages, page_ranges="",
                      amount=int(tmpl.get("price_per_page", PRICE_PER_PAGE_BW)) * pages * copies)
@@ -816,7 +864,16 @@ def create_pending_order():
         clean_name = secure_filename(file.filename) or f"fayl.{file.filename.rsplit('.', 1)[-1]}"
         saved_path = UPLOAD_FOLDER / f"pending_{order_id}_{clean_name}"
         file.save(str(saved_path))
-        total = _count_file_pages(saved_path)
+        # Darhol chop etishga tayyor PDF: to'lov tushganda hech narsa aylantirilmaydi
+        try:
+            ready = convert_cached(saved_path)
+            total = get_pdf_page_count(ready)
+        except Exception as e:
+            logger.error(f"#{order_id}: faylni tayyorlab bo'lmadi: {e}")
+            saved_path.unlink(missing_ok=True)
+            return jsonify({"success": False,
+                            "message": f"Faylni ochib bo'lmadi. Boshqa formatda (masalan PDF) yuboring. ({e})"}), 400
+        order["ready_file"] = str(ready)
         pages = payments.count_selected_pages(order["page_ranges"], total)
         per_page = PRICE_PER_PAGE_BW
         order.update(filename=clean_name, saved_path=str(saved_path), pages=pages,
@@ -1472,6 +1529,26 @@ def agent_get_queue():
                 "duplex": o.get("duplex", "one-sided"),
                 "page_ranges": o.get("page_ranges", ""),
             })
+    return jsonify({"success": True, "jobs": jobs})
+
+
+@app.route("/api/agent/upcoming", methods=["GET"])
+def agent_upcoming():
+    """
+    Hali to'lanmagan, lekin fayli tayyor buyurtmalar. Pi ularni OLDINDAN yuklab, printer
+    rastriga aylantirib qo'yadi — pul tushishi bilan faqat printerga uzatish qoladi.
+    """
+    if not _agent_allowed(request):
+        return _agent_denied()
+    now = time.time()
+    jobs = []
+    for o in list(payments.orders.values()):
+        if o.get("status") in ("PENDING", "CLAIMED") and o.get("ready_file") \
+                and now - o.get("created_at", 0) < 45 * 60 and Path(o["ready_file"]).exists():
+            jobs.append({"id": o["id"], "copies": o.get("copies", 1), "pages": o.get("pages", 1),
+                         "orientation": o.get("orientation", "portrait"),
+                         "page_ranges": o.get("page_ranges", ""),
+                         "duplex": o.get("duplex", "one-sided")})
     return jsonify({"success": True, "jobs": jobs})
 
 

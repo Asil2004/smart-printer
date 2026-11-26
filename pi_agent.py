@@ -60,26 +60,35 @@ HEARTBEAT_INTERVAL = 5     # s — chop etish paytida ham to'xtamaydi (alohida o
 BACKUP_INTERVAL = 10       # s — Render buyurtmalarini Pi'ga nusxalash
 BACKUP_DIR = Path(os.environ.get("AGENT_BACKUP_DIR", str(Path.home() / ".smart_printchi_backup")))
 PRINT_GIVE_UP_S = 20 * 60  # shuncha vaqtda tugamasa CUPS ishi bekor qilinadi
+# Oldindan tayyorlash: to'lov kutilayotgan buyurtma Pi'da printer rastriga aylantirib qo'yiladi
+PRERENDER_DIR = Path.home() / ".smart_printchi_spool" / "pre"
+PRERENDER_PPD = os.environ.get("PRERENDER_PPD", "/usr/share/cups/model/captdriver/CanonLBP-3010-3018-3050.ppd")
+PRERENDER_MAX_SHEETS = 80  # bet × nusxa shundan ko'p bo'lsa oldindan tayyorlanmaydi (oddiy yo'l)
 
 cloud = requests.Session()
 if AGENT_TOKEN:
     cloud.headers["X-Agent-Token"] = AGENT_TOKEN
 
 def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait",
-                   page_ranges: str = "", order_id: str = "", pages: int = 1) -> tuple[bool, str]:
+                   page_ranges: str = "", order_id: str = "", pages: int = 1,
+                   prerendered: bool = False) -> tuple[bool, str]:
     """
     Canon LBP3010 ga CUPS orqali fayl yuboradi va ish HAQIQATAN tugaguncha kutadi.
     captdriver qog'oz tugaganini CUPS'ga aytmaydi: ish shunchaki navbatda turadi.
     Shuning uchun "PRINTED" faqat CUPS ishni "completed" qilganda qaytariladi.
     """
-    cmd = ["lp", "-d", CANON_PRINTER, "-n", str(copies), "-o", "media=A4"]
-    if orientation == "landscape":
-        cmd.extend(["-o", "orientation-requested=4"])
+    if prerendered:
+        # Tayyor rastr (nusxa, betlar va yo'nalish ichida) — CUPS faqat rastertocapt ni ishlatadi
+        cmd = ["lp", "-d", CANON_PRINTER, "-o", "media=A4", str(pdf_path)]
     else:
-        cmd.extend(["-o", "orientation-requested=3"])
-    if page_ranges:
-        cmd.extend(["-o", f"page-ranges={page_ranges}"])
-    cmd.append(str(pdf_path))
+        cmd = ["lp", "-d", CANON_PRINTER, "-n", str(copies), "-o", "media=A4"]
+        if orientation == "landscape":
+            cmd.extend(["-o", "orientation-requested=4"])
+        else:
+            cmd.extend(["-o", "orientation-requested=3"])
+        if page_ranges:
+            cmd.extend(["-o", f"page-ranges={page_ranges}"])
+        cmd.append(str(pdf_path))
 
     logger.info(f"Canon buyrug'i: {' '.join(cmd)}")
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -303,6 +312,134 @@ def heartbeat_and_backup_loop():
         time.sleep(HEARTBEAT_INTERVAL)
 
 
+# ──────────────────────────────────────────────────────────
+# Oldindan tayyorlash (to'lov kutilayotganda)
+# ──────────────────────────────────────────────────────────
+_pre_lock = threading.Lock()
+_pre_busy: dict = {}       # order_id -> threading.Event (tayyorlanmoqda)
+
+
+def _pre_key(job: dict) -> str:
+    return f"{int(job.get('copies', 1))}|{job.get('orientation', 'portrait')}|{job.get('page_ranges', '')}"
+
+
+def _download(order_id: str, dest_dir: Path, stem: str) -> Path:
+    """Render'dan chop etiladigan faylni yuklaydi. Kengaytma server bergan nomdan olinadi."""
+    res = cloud.get(f"{CLOUD_URL}/api/agent/download/{order_id}", timeout=(15, 300), stream=True)
+    if not res.ok:
+        raise RuntimeError(f"Faylni yuklab bo'lmadi: status {res.status_code}")
+    import re as _re
+    m = _re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)', res.headers.get("Content-Disposition", ""))
+    suffix = Path(m.group(1)).suffix.lower() if m else ".pdf"
+    dest = dest_dir / f"{stem}{suffix or '.pdf'}"
+    part = dest.with_name(dest.name + ".part")
+    with open(part, "wb") as f:
+        for chunk in res.iter_content(chunk_size=65536):
+            if chunk:
+                f.write(chunk)
+    part.replace(dest)
+    if dest.suffix == ".pdf":   # PDF nomli, lekin matn bo'lsa (eski serverlar) — matn sifatida
+        with open(dest, "rb") as f:
+            head = f.read(1024)
+        if b"%PDF" not in head:
+            dest = dest.rename(dest.with_suffix(".txt"))
+    return dest
+
+
+def prerender(job: dict) -> bool:
+    """Buyurtma faylini yuklab, nusxa/bet/yo'nalish bilan gzip CUPS rastriga aylantiradi."""
+    oid = job["id"]
+    sheets = max(1, int(job.get("pages", 1))) * max(1, int(job.get("copies", 1)))
+    if sheets > PRERENDER_MAX_SHEETS or not Path(PRERENDER_PPD).exists():
+        return False
+    with _pre_lock:
+        if oid in _pre_busy:
+            return False
+        done = _pre_busy[oid] = threading.Event()
+    try:
+        PRERENDER_DIR.mkdir(parents=True, exist_ok=True)
+        t0 = time.time()
+        src = _download(oid, PRERENDER_DIR, f"{oid}.src")
+        out = PRERENDER_DIR / f"{oid}.ras.gz"
+        tmp = out.with_name(out.name + ".part")
+        opts = ["-o", "media=A4", "-o", f"copies={max(1, int(job.get('copies', 1)))}",
+                "-o", "orientation-requested=4" if job.get("orientation") == "landscape" else "orientation-requested=3"]
+        if job.get("page_ranges"):
+            opts += ["-o", f"page-ranges={job['page_ranges']}"]
+        with open(tmp, "wb") as f:
+            cf = subprocess.Popen(["nice", "-n", "10", "cupsfilter", "-p", PRERENDER_PPD,
+                                   "-m", "application/vnd.cups-raster", *opts, str(src)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            gz = subprocess.Popen(["gzip", "-1"], stdin=cf.stdout, stdout=f)
+            cf.stdout.close()
+            gz.wait(timeout=600)
+            cf.wait(timeout=600)
+        if cf.returncode != 0 or gz.returncode != 0 or tmp.stat().st_size < 100:
+            tmp.unlink(missing_ok=True)
+            logger.warning(f"#{oid}: oldindan tayyorlab bo'lmadi (cupsfilter {cf.returncode}) — oddiy yo'l ishlatiladi")
+            return False
+        tmp.replace(out)
+        (PRERENDER_DIR / f"{oid}.json").write_text(json.dumps({"key": _pre_key(job), "made_at": time.time()}))
+        logger.info(f"#{oid}: oldindan tayyor ({sheets} varaq, {out.stat().st_size // 1024} KB, {time.time() - t0:.1f} s)")
+        return True
+    except Exception as e:
+        logger.warning(f"#{oid}: oldindan tayyorlashda xato: {e}")
+        return False
+    finally:
+        done.set()
+        with _pre_lock:
+            _pre_busy.pop(oid, None)
+
+
+def prerendered_file(job: dict, wait_s: int = 90):
+    """Shu buyurtma uchun tayyor rastr (sozlamalari mos bo'lsa). Tayyorlanayotgan bo'lsa kutadi."""
+    oid = job["id"]
+    with _pre_lock:
+        ev = _pre_busy.get(oid)
+    if ev:
+        logger.info(f"#{oid}: oldindan tayyorlash tugashi kutilmoqda...")
+        ev.wait(wait_s)
+    out, meta = PRERENDER_DIR / f"{oid}.ras.gz", PRERENDER_DIR / f"{oid}.json"
+    try:
+        if out.exists() and json.loads(meta.read_text()).get("key") == _pre_key(job):
+            return out
+    except Exception:
+        pass
+    return None
+
+
+def _pre_cleanup(oid: str):
+    for f in PRERENDER_DIR.glob(f"{oid}.*"):
+        f.unlink(missing_ok=True)
+
+
+def prefetch_loop():
+    """Har 3 soniyada to'lov kutilayotgan buyurtmalarni oldindan tayyorlaydi; eskilarini o'chiradi."""
+    while True:
+        try:
+            r = cloud.get(f"{CLOUD_URL}/api/agent/upcoming", timeout=10)
+            if r.ok:
+                for job in r.json().get("jobs", []):
+                    if not prerendered_file(job, wait_s=0):
+                        prerender(job)
+            # 60 daqiqadan eski tayyorlanmalar (to'lanmagan buyurtmalar) o'chiriladi
+            if PRERENDER_DIR.exists():
+                for meta in PRERENDER_DIR.glob("*.json"):
+                    try:
+                        if time.time() - json.loads(meta.read_text()).get("made_at", 0) > 3600:
+                            _pre_cleanup(meta.name.split(".")[0])
+                    except Exception:
+                        meta.unlink(missing_ok=True)
+                for f in PRERENDER_DIR.glob("*.part"):
+                    if time.time() - f.stat().st_mtime > 900:
+                        f.unlink(missing_ok=True)
+        except requests.exceptions.RequestException:
+            pass
+        except Exception as e:
+            logger.debug(f"Prefetch xatosi: {e}")
+        time.sleep(3)
+
+
 def process_job(job: dict):
     order_id = job["id"]
     if order_id in PROCESSED_JOBS:
@@ -319,50 +456,30 @@ def process_job(job: dict):
     # 1. Holatni "PRINTING" ga o'tkazish
     report(order_id, {"status": "PRINTING"})
 
-    filename = job.get("filename", "")
-
-    # Faylni xavfsiz spool papkasiga yuklab olish
-    spool_dir = get_spool_dir()
-    clean_ext = Path(filename).suffix.lower() if Path(filename).suffix else ".pdf"
-    tmp_file = spool_dir / f"job_{order_id}_{int(time.time())}{clean_ext}"
-    try:
-        download_url = f"{CLOUD_URL}/api/agent/download/{order_id}"
-        logger.info(f"Fayl yuklab olinmoqda: {download_url}")
-        res = cloud.get(download_url, timeout=(15, 300), stream=True)
-        if not res.ok:
-            raise RuntimeError(f"Faylni yuklab bo'lmadi: status {res.status_code}")
-        total_dl = 0
-        with open(tmp_file, "wb") as f:
-            for chunk in res.iter_content(chunk_size=65536):
-                if chunk:
-                    f.write(chunk)
-                    total_dl += len(chunk)
-        logger.info(f"Fayl to'liq yuklandi ({total_dl / (1024*1024):.2f} MB): {tmp_file.name}")
-        # Server ba'zan oddiy matnni (masalan /api/dev/test_print) job_X.pdf nomi bilan beradi.
-        # CUPS turini kengaytmadan aniqlaydi: .pdf matn bo'lsa pdftopdf yiqiladi va qog'oz chiqmaydi.
-        if tmp_file.suffix == ".pdf":
-            with open(tmp_file, "rb") as f:
-                head = f.read(1024)
-            if b"%PDF" not in head:
-                txt_file = tmp_file.with_suffix(".txt")
-                tmp_file.rename(txt_file)
-                tmp_file = txt_file
-                logger.info(f"Fayl PDF emas, matn sifatida chop etiladi: {tmp_file.name}")
-    except Exception as e:
-        logger.error(f"Fayl yuklab olishda xato: {e}")
-        report(order_id, {"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"})
-        return
-
-    # Canon LBP3010 (A4 lazer)
     copies = job.get("copies", 1)
     orientation = job.get("orientation", "portrait")
     ranges = job.get("page_ranges", "")
-    ok, note = print_to_canon(tmp_file, copies=copies, orientation=orientation, page_ranges=ranges,
-                              order_id=order_id, pages=job.get("pages", 1))
-    try:
+
+    # 1) Oldindan tayyorlangan rastr bo'lsa — darhol printerga
+    pre = prerendered_file(job)
+    if pre:
+        logger.info(f"#{order_id}: oldindan tayyorlangan rastr ishlatiladi ({pre.stat().st_size // 1024} KB)")
+        ok, note = print_to_canon(pre, copies=copies, order_id=order_id, pages=job.get("pages", 1),
+                                  prerendered=True)
+        _pre_cleanup(order_id)
+    else:
+        # 2) Oddiy yo'l: yuklab olish → CUPS PDF ni o'zi tayyorlaydi
+        try:
+            tmp_file = _download(order_id, get_spool_dir(), f"job_{order_id}_{int(time.time())}")
+            logger.info(f"Fayl yuklandi: {tmp_file.name} ({tmp_file.stat().st_size // 1024} KB)")
+        except Exception as e:
+            logger.error(f"Fayl yuklab olishda xato: {e}")
+            report(order_id, {"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"})
+            return
+        ok, note = print_to_canon(tmp_file, copies=copies, orientation=orientation, page_ranges=ranges,
+                                  order_id=order_id, pages=job.get("pages", 1))
         tmp_file.unlink(missing_ok=True)
-    except Exception:
-        pass
+        _pre_cleanup(order_id)
 
     if ok:
         logger.info(f"Buyurtma #{order_id} muvaffaqiyatli chop etildi!")
@@ -370,11 +487,6 @@ def process_job(job: dict):
     else:
         logger.error(f"Canon muvaffaqiyatsiz bo'ldi: {note}")
         report(order_id, {"status": "FAILED", "error": note})
-
-    try:
-        tmp_file.unlink(missing_ok=True)
-    except Exception:
-        pass
 
 
 def fix_canon_cups():
@@ -413,6 +525,7 @@ def main():
     cleanup_stale_files()
 
     threading.Thread(target=heartbeat_and_backup_loop, daemon=True).start()
+    threading.Thread(target=prefetch_loop, daemon=True, name="prefetch").start()
 
     while True:
         try:

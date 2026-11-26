@@ -14,7 +14,10 @@
 
   // ── Sozlamalar ──────────────────────────────────────────
   const MAX_BYTES = 64 * 1024 * 1024;
-  const EXTS = ['pdf', 'docx', 'png', 'jpg', 'jpeg'];
+  // Server hammasini PDF ga aylantiradi (server: ALLOWED_EXTENSIONS bilan bir xil)
+  const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif', 'heic', 'heif'];   // 1 bet, darhol
+  const EXTS = ['pdf', 'doc', 'docx', 'odt', 'rtf', 'txt', 'xls', 'xlsx', 'ods', 'csv',
+                'ppt', 'pptx', 'odp', 'tif', 'tiff', ...IMAGE_EXTS];
   let MAX_COPIES = 50;   // /api/health dagi max_copies bilan yangilanadi
   const POLL_MS = 2000;
   const HDR = { 'ngrok-skip-browser-warning': 'true' };
@@ -344,13 +347,13 @@
   async function onFile(file) {
     if (!file) return;
     const ext = (file.name.split('.').pop() || '').toLowerCase();
-    if (!EXTS.includes(ext)) { toast('Bu format qabul qilinmaydi. PDF, DOCX, JPG yoki PNG yuboring.', 'err'); return; }
+    if (!EXTS.includes(ext)) { toast('Bu format qabul qilinmaydi. PDF, Word, Excel, PowerPoint, matn yoki rasm yuboring.', 'err'); return; }
     if (file.size > MAX_BYTES) { toast('Fayl 64 MB dan katta.', 'err'); return; }
     S.view = 'print';
     S.template = null;
 
     // Rasm bo'lsa darhol 1 bet (serverga so'rovsiz chaqmoqdek ochiladi)
-    if (['png', 'jpg', 'jpeg'].includes(ext)) {
+    if (IMAGE_EXTS.includes(ext) && ext !== 'gif') {
       update({ file, fileExt: ext, pages: 1, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '' }, '');
       speak('Rasm qabul qilindi.');
       return;
@@ -366,7 +369,8 @@
       }
     }
 
-    // DOCX yoki aniqlab bo'lmagan PDF uchun server orqali tekshirish
+    // Ofis fayllari, TIFF/GIF (ko'p bet) yoki aniqlab bo'lmagan PDF — server PDF ga aylantirib sanaydi
+    // (natija serverda keshlanadi: to'lovda qayta aylantirilmaydi)
     update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '' }, '');
     try {
       const fd = new FormData();

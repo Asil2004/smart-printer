@@ -1,10 +1,13 @@
 # Smart Printchi - Cloud Web & Conversion Server
 FROM python:3.11-slim
 
-# LibreOffice va shriftlar (Word fayllarni PDF ga 0.3 soniyada aylantirish uchun)
+# LibreOffice (Word, Excel, PowerPoint → PDF) va shriftlar (kirill/lotin)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer-nogui \
+    libreoffice-calc-nogui \
+    libreoffice-impress-nogui \
     fonts-dejavu-core \
+    fonts-liberation2 \
     fonts-freefont-ttf \
     curl \
     && rm -rf /var/lib/apt/lists/*
