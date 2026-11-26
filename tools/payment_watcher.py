@@ -115,6 +115,16 @@ def _post(item: dict) -> bool:
         return False
 
 
+def _heartbeat(pending: int):
+    import requests
+    try:
+        requests.post(f"{CLOUD_URL}/api/agent/watcher-heartbeat", timeout=15,
+                      json={"pending": pending, "card": CARD_LAST4},
+                      headers={"X-Agent-Token": AGENT_TOKEN})
+    except Exception as e:
+        log.debug(f"Heartbeat yuborilmadi: {e}")
+
+
 async def run():
     from telethon import events
     from tg_login import client
@@ -175,11 +185,17 @@ async def run():
         _save_state(st)
 
     log.info(f"Kuzatuv boshlandi: @{BOT} → {CLOUD_URL} (karta: …{CARD_LAST4 or 'hammasi'})")
+    last_beat = 0.0
     while True:
-        await asyncio.sleep(30)
+        if time.time() - last_beat >= 60:
+            # Telegram aloqasi uzilgan bo'lsa "tirikman" yuborilmaydi — server 5 daqiqada adminni ogohlantiradi
+            if c.is_connected():
+                last_beat = time.time()
+                await asyncio.to_thread(_heartbeat, len(st["pending"]))
         if st["pending"]:
             async with lock:
                 await flush()
+        await asyncio.sleep(30)
 
 
 if __name__ == "__main__":

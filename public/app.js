@@ -456,6 +456,7 @@
       if (!ok) throw new Error();
       S.online = true;
       S.printers = data.printers || [];
+      S.autoPay = !!data.auto_payment;
       const bw = S.printers.find((p) => p.type === 'laser_bw');
       const any = bw || S.printers.find((p) => p.connected && p.ready);
       S.printerReady = !!(any && any.connected && any.ready);
@@ -631,7 +632,9 @@
         : `${pageCount} bet × ${S.copies} nusxa · ${S.color === 'color' ? 'rangli' : 'oq-qora'}`;
       $('payClaim').disabled = false;
       $('promoBtn').disabled = false;
-      setPayStatus('', 'To‘lov kutilmoqda');
+      setPayStatus('', S.autoPay
+        ? `Aynan ${money(data.amount)} o‘tkazing — pul tushishi bilan avtomatik chop etiladi`
+        : 'To‘lov kutilmoqda');
       renderPayPanel();
       startPolling();
     } catch (e) {
@@ -743,7 +746,13 @@
     if (st === S.lastStatus && st !== 'PRINTING') return;
     S.lastStatus = st;
     switch (st) {
-      case 'PENDING': setPayStatus('', 'To‘lov kutilmoqda'); break;
+      case 'PENDING':
+        if (!$('promoForm').classList.contains('applied')) {
+          setPayStatus('', S.autoPay
+            ? `Aynan ${money(S.order.amount)} o‘tkazing — pul tushishi bilan avtomatik chop etiladi`
+            : 'To‘lov kutilmoqda');
+        }
+        break;
       case 'CLAIMED': setPayStatus('info', 'To‘lov tekshirilmoqda… biroz kuting'); $('payClaim').disabled = true; break;
       case 'PAID':
       case 'PRINTING':

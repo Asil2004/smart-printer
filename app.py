@@ -589,6 +589,7 @@ def get_printers():
         "printers": printers,
         "queue": queued,
         "agent_seen_ago": int(time.time() - _agent_last_seen) if _agent_last_seen else None,
+        "auto_payment": auto_payment_alive(),
     })
 
 
@@ -915,6 +916,47 @@ def _unique_amount(base: int) -> int:
     return base + 100 + random.randint(0, 899)   # 99 tadan ko'p bir vaqtda kutsa (amalda bo'lmaydi)
 
 
+WATCHER_STALE_S = 5 * 60
+_watcher = {"last_seen": 0.0, "alerted": False, "info": {}}
+
+
+def auto_payment_alive() -> bool:
+    return CARD_AUTO_CONFIRM and time.time() - _watcher["last_seen"] < WATCHER_STALE_S
+
+
+@app.route("/api/agent/watcher-heartbeat", methods=["POST"])
+def watcher_heartbeat():
+    """Pi'dagi to'lov kuzatuvchisi har daqiqada 'tirikman' deydi."""
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    was_alerted = _watcher["alerted"]
+    _watcher.update(last_seen=time.time(), alerted=False, info=request.get_json(silent=True) or {})
+    if was_alerted:
+        payments.tg_send("✅ To'lov kuzatuvchisi qayta ishlayapti — kartaga to'lovlar yana avtomatik tasdiqlanadi.")
+    return jsonify({"success": True})
+
+
+def _watcher_monitor():
+    """Kuzatuvchi 5 daqiqa jim qolsa, adminga bir marta ogohlantirish."""
+    time.sleep(WATCHER_STALE_S + 60)     # server endigina yongan bo'lsa, kuzatuvchiga ulanishga vaqt
+    while True:
+        try:
+            if CARD_AUTO_CONFIRM and not auto_payment_alive() and not _watcher["alerted"]:
+                _watcher["alerted"] = True
+                ago = int(time.time() - _watcher["last_seen"]) // 60 if _watcher["last_seen"] else None
+                payments.tg_send("⚠️ <b>To'lov kuzatuvchisi javob bermayapti</b>"
+                                 f"{f' ({ago} daqiqadan beri)' if ago else ''}.\n"
+                                 "Kartaga to'lovlar avtomatik tasdiqlanmaydi — buyurtmalarni qo'lda tasdiqlang.\n"
+                                 "Pi'da: <code>sudo systemctl restart printchi-payments</code>")
+        except Exception as e:
+            logger.error(f"Kuzatuvchi nazoratida xato: {e}")
+        time.sleep(60)
+
+
+if IS_CLOUD_SERVER and CARD_AUTO_CONFIRM:
+    threading.Thread(target=_watcher_monitor, daemon=True, name="watcher-monitor").start()
+
+
 @app.route("/api/agent/payment-seen", methods=["POST"])
 def agent_payment_seen():
     """Pi agenti kartaga kirimni ko'rdi (CardXabar). Summa bo'yicha buyurtmani topib tasdiqlaydi."""
@@ -943,6 +985,7 @@ def agent_payment_seen():
         payments.set_status(o, o["status"], paid_amount=amount, paid_msg_id=msg_id)
         msg = confirm_order(o["id"], f"CARD_AUTO:{card or '?'}")
         logger.info(f"Kartaga {amount} so'm tushdi → #{o['id']} avtomatik tasdiqlandi ({msg})")
+        payments.tg_send(f"✅ <b>#{o['id']}: {amount} so'm tushdi</b> (…{card or '?'}) — avtomatik tasdiqlandi, chop etilmoqda")
         return jsonify({"success": True, "result": "confirmed", "order_id": o["id"]})
 
     reason = "mos buyurtma yo'q" if not matches else f"{len(matches)} ta buyurtma mos keldi"

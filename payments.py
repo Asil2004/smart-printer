@@ -215,10 +215,27 @@ def order_summary(o: dict) -> str:
 
 
 def notify_claim(o: dict):
-    """Mijoz 'To'ladim' bosganda adminga tasdiq so'rovi yuboriladi."""
+    """Mijoz 'To'ladim' bosganda adminga xabar. Kartaga avtomatik tasdiq ishlasa — faqat ma'lumot."""
+    auto = False
+    try:
+        import sys
+        # app.py allaqachon yuklangan (gunicorn: "app", python app.py: "__main__") — qayta import qilinmaydi
+        for name in ("app", "__main__"):
+            fn = getattr(sys.modules.get(name), "auto_payment_alive", None)
+            if fn:
+                auto = bool(fn())
+                break
+    except Exception:
+        pass
+    if auto:
+        text = (f"⏳ <b>#{o['id']}: mijoz \"To'ladim\" dedi</b>\n{order_summary(o)}\n\n"
+                f"To'lov avtomatik tekshirilmoqda — pul tushsa o'zi tasdiqlanadi.\n"
+                f"✅ ni faqat pul tushganini o'zingiz ko'rsangiz bosing.")
+    else:
+        text = (f"🧾 <b>To'lov tasdig'i kerak — #{o['id']}</b>\n{order_summary(o)}\n\n"
+                f"Kartangizga shu summa tushganini tekshiring.")
     tg_send(
-        f"🧾 <b>To'lov tasdig'i kerak — #{o['id']}</b>\n{order_summary(o)}\n\n"
-        f"Kartangizga shu summa tushganini tekshiring.",
+        text,
         buttons=[[{"text": "✅ Tasdiqlash", "callback_data": f"pay:{o['id']}"},
                   {"text": "❌ Rad etish", "callback_data": f"rej:{o['id']}"}]],
     )
