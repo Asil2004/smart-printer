@@ -11,6 +11,11 @@ const AppConfig = {
   // Render.com doimiy tezkor bulutli server URL
   DEFAULT_API_URL: "https://smart-printer-mo1g.onrender.com",
 
+  // Yoqilgan imkoniyatlar. Hozir faqat Canon LBP3010 (A4, oq-qora) va kartaga o'tkazma.
+  // Rangli printer yoki XP-58 chek printeri ulansa — true qiling (server: COLOR_ENABLED=1).
+  FEATURES: { color: false, thermal: false },
+  PAY_METHODS: ["card"],     // "qr", "click", "payme", "card" — saytda shu tartibda ko'rsatiladi
+
   // To'lov tizimi sozlamalari
   PAYMENT: {
     enabled: true,

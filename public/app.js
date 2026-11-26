@@ -46,7 +46,7 @@
     botLead: '',
     templates: [],
     order: null,           // {id, amount, pages, source}
-    payMethod: 'qr',
+    payMethod: (AppConfig.PAY_METHODS || ['card'])[0],
     pollTimer: null,
     lastStatus: '',
   };
@@ -155,7 +155,7 @@
     const list = [];
     if (S.printerType === 'thermal') {
       list.push(['A4 printerga o‘tish', () => update({ printerType: 'laser_bw' }, 'Canon LBP3010 A4 lazer tanlandi.')]);
-    } else {
+    } else if ((AppConfig.FEATURES || {}).thermal) {
       list.push(['Chek printerda chiqarish', () => update({ printerType: 'thermal' }, 'XP-58 termal chek printeri tanlandi.')]);
     }
     if (S.copies < 2) list.push(['2 nusxa', () => update({ copies: 2 }, 'Tushundim: 2 nusxa.')]);
@@ -455,7 +455,9 @@
       const { ok, data } = await getJSON('/api/printers');
       if (!ok) throw new Error();
       S.online = true;
-      S.printers = data.printers || [];
+      const feat = AppConfig.FEATURES || {};
+      S.printers = (data.printers || []).filter((p) =>
+        p.type === 'laser_bw' || (p.type === 'color' && feat.color) || (p.type === 'thermal' && feat.thermal));
       S.autoPay = !!data.auto_payment;
       const bw = S.printers.find((p) => p.type === 'laser_bw');
       const any = bw || S.printers.find((p) => p.connected && p.ready);
@@ -588,7 +590,7 @@
 
   async function openPay(src) {
     if (S.order) return;
-    S.payMethod = 'qr';
+    S.payMethod = (AppConfig.PAY_METHODS || ['card'])[0];
     S.lastStatus = '';
     $('payOverlay').hidden = false;
     $('orderCode').textContent = '#······';

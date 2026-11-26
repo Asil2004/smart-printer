@@ -772,6 +772,8 @@ def _print_worker(order: dict):
 
 
 IS_CLOUD_SERVER = os.environ.get("IS_CLOUD_SERVER", "0").strip().lower() in ("1", "true", "yes")
+COLOR_ENABLED = os.environ.get("COLOR_ENABLED", "0").strip().lower() in ("1", "true", "yes")
+THERMAL_ENABLED = os.environ.get("THERMAL_ENABLED", "0").strip().lower() in ("1", "true", "yes")
 
 
 def _start_print(order: dict):
@@ -847,8 +849,11 @@ def create_pending_order():
     form   = request.form if request.form else (request.get_json(silent=True) or {})
     source = form.get("source", "file")
     copies = _int_form(form, "copies", 1, 1, MAX_COPIES)
-    color_mode = "color" if form.get("color_mode") == "color" else "gray"
+    # Hozir faqat Canon LBP3010 (A4, oq-qora). Rangli/XP-58 ulansa: COLOR_ENABLED=1 / THERMAL_ENABLED=1
+    color_mode = "color" if form.get("color_mode") == "color" and COLOR_ENABLED else "gray"
     printer_type = form.get("printer_type", "laser_bw")
+    if printer_type not in ("laser_bw", "thermal") or (printer_type == "thermal" and not THERMAL_ENABLED):
+        printer_type = "laser_bw"
     order_id = uuid.uuid4().hex[:6].upper()
     order = {"id": order_id, "kind": source, "copies": copies, "color_mode": color_mode,
              "printer_type": printer_type,
