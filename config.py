@@ -36,13 +36,6 @@ PRINTER_NAME = os.environ.get("PRINTER_NAME", "Canon-LBP3010")
 # Standart qog'oz formati: A4
 DEFAULT_MEDIA = os.environ.get("DEFAULT_MEDIA", "A4")
 
-PRINT_MODE = os.environ.get("PRINT_MODE", "cups")
-
-# ESC/POS USB sozlamalari (PRINT_MODE=escpos bo'lganda ishlatiladi)
-# lsusb buyrug'i bilan aniqlash: Bus XXX Device YYY: ID XXXX:YYYY
-ESCPOS_VENDOR_ID  = int(os.environ.get("ESCPOS_VENDOR_ID",  "0x0416"), 16)  # Winbond/Xprinter
-ESCPOS_PRODUCT_ID = int(os.environ.get("ESCPOS_PRODUCT_ID", "0x5011"), 16)  # XP-58 IIL
-
 # Telegram Admin xabarnomalari (Qog'oz, toner yoki tizim xatolari haqida)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")

@@ -47,19 +47,6 @@
         </section>
 
         <section class="grid" id="settingsGrid" hidden aria-label="Chop etish sozlamalari">
-          <div class="tile span-2" id="printerTile" hidden>
-            <p class="tile-label" id="lblPrinter">Printer</p>
-            <div class="seg seg-printer" role="group" aria-labelledby="lblPrinter">
-              <button type="button" data-printer="laser_bw" id="btnPrinterLaser" aria-pressed="true">
-                <i class="ph ph-file-text" aria-hidden="true"></i>
-                <span><b>A4 qog‘oz</b><small>Canon LBP3010</small></span>
-              </button>
-              <button type="button" data-printer="thermal" id="btnPrinterThermal" aria-pressed="false">
-                <i class="ph ph-receipt" aria-hidden="true"></i>
-                <span><b>Chek 58 mm</b><small>XP-58</small></span>
-              </button>
-            </div>
-          </div>
           <div class="tile">
             <p class="tile-label" id="lblCopies">Nusxa</p>
             <div class="stepper" role="group" aria-labelledby="lblCopies">
@@ -80,13 +67,6 @@
             <div class="seg" role="group" aria-labelledby="lblPages">
               <button type="button" data-range="all" aria-pressed="true">Hammasi</button>
               <button type="button" data-range="custom" aria-pressed="false">Tanlash</button>
-            </div>
-          </div>
-          <div class="tile" id="colorTile" hidden>
-            <p class="tile-label" id="lblColor">Rang</p>
-            <div class="seg" role="group" aria-labelledby="lblColor">
-              <button type="button" data-color="gray" aria-pressed="true">Oq-qora</button>
-              <button type="button" data-color="color" aria-pressed="false" id="colorBtn" disabled title="Rangli printer ulanmagan">Rangli</button>
             </div>
           </div>
           <div class="tile span-2" id="rangeTile" hidden>

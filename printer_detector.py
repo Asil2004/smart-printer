@@ -4,10 +4,8 @@ printer_detector.py — Smart Printer Routing moduli
 USB orqali ulangan printerlarni avtomatik aniqlaydi va
 print job uchun to'g'ri printerni tanlaydi.
 
-Printer turlari:
-  - thermal  : XP-58 IIL (chek, receipt)
-  - laser_bw : Canon 2900/3010/3018 (oq-qora hujjat)
-  - color    : Har qanday rangli printer (rangli hujjat)
+Printer turi: laser_bw — Canon LBP3010 (A4, oq-qora). Loyihada boshqa printer yo'q
+(rangli va XP-58 chek printerlari 2026-11-26 da olib tashlandi).
 """
 
 import subprocess
@@ -37,40 +35,6 @@ KNOWN_PRINTER_DB = [
         ],
         "cups_name_hints": ["Canon", "LBP", "Samsung", "LaserJet", "HP_Laser", "ML-"],
         "media": "A4",
-        "color": False,
-    },
-    {
-        "type": "thermal",
-        "label": "Termal Chek (XP-58)",
-        "usb_ids": [
-            ("0483", "070b"),  # STMicroelectronics (XP-58)
-            ("0483", "5743"),  # STMicroelectronics alternative
-            ("0483", "5740"),  # STMicroelectronics alternative
-            ("0416", "5011"),  # Winbond POS58
-            ("1fc9", "2016"),  # NXP POS58
-            ("0471", "0055"),  # Philips POS
-            ("0fe6", "811e"),  # Corechip POS
-            ("6868", "0200"),  # POS58 generic
-            ("1a86", "7584"),  # CH34x USB-to-printer
-        ],
-        "cups_name_hints": ["XP-58", "XP58", "POS", "Thermal", "ZJ-58"],
-        "media": "Roll58",
-        "color": False,
-    },
-    {
-        "type": "color",
-        "label": "Rangli Printer",
-        "usb_ids": [
-            ("04f9", "0027"),  # Brother MFC
-            ("03f0", "c511"),  # HP DeskJet
-            ("04b8", "08d1"),  # Epson L3110
-            ("04b8", "08a1"),  # Epson L805
-            ("04a9", "10dc"),  # Canon PIXMA G3410
-            ("04a9", "1746"),  # Canon PIXMA MP280
-        ],
-        "cups_name_hints": ["PIXMA", "DeskJet", "Epson_L", "Brother", "Color", "MFC", "Inkjet"],
-        "media": "A4",
-        "color": True,
     },
 ]
 
@@ -141,7 +105,7 @@ def get_live_cups_usb_printers() -> list[str]:
 def get_cups_printers() -> list[dict]:
     """
     CUPS tizimida ro'yxatdan o'tgan printerlar ro'yxatini va ularning statusini oladi.
-    Natija: [{"name": "XP-58", "state": "idle", "raw": "...", "paper_out": False, "jam": False}, ...]
+    Natija: [{"name": "Canon-LBP3010", "state": "idle", "raw": "...", "paper_out": False, "jam": False}, ...]
     """
     output = _run(["lpstat", "-p", "-l"])
     if not output:
@@ -211,48 +175,6 @@ def check_hardware_paper_sensor(pin: int = None) -> bool | None:
         return None
 
 
-def inspect_thermal_escpos_status() -> dict:
-    """
-    /dev/usb/lp0 dagi XP-58 termal printeriga to'g'ridan-to'g'ri DLE EOT status so'rovini yuboradi.
-    Termal printer qog'oz holati, qopqog'i va xatoliklarni aniqlaydi.
-    """
-    dev_path = "/dev/usb/lp0"
-    import os
-    if not os.path.exists(dev_path):
-        return {"available": False, "paper_out": False, "cover_open": False}
-
-    try:
-        # DLE EOT 4 (Real-time paper status transmission)
-        # ESC/POS standard: 0x10 0x04 0x04
-        # Response byte:
-        #   bit 5-6: 11 (Paper end sensor: paper not present)
-        #   bit 2-3: 11 (Paper near-end sensor: paper near end)
-        import select
-        fd = os.open(dev_path, os.O_RDWR | os.O_NONBLOCK)
-        try:
-            os.write(fd, b"\x10\x04\x04")
-            # 100ms kutamiz
-            r, _, _ = select.select([fd], [], [], 0.1)
-            if r:
-                res = os.read(fd, 4)
-                if res:
-                    status_byte = res[0]
-                    paper_out = bool(status_byte & 0x60)  # bit 5 yoki bit 6
-                    near_end = bool(status_byte & 0x0C)   # bit 2 yoki bit 3
-                    return {
-                        "available": True,
-                        "paper_out": paper_out,
-                        "near_end": near_end,
-                        "status_reason": "Qog'oz tugagan" if paper_out else ("Qog'oz tugamoqda" if near_end else "Normal")
-                    }
-        finally:
-            os.close(fd)
-    except Exception as e:
-        logger.debug(f"ESC/POS status so'rovida ogohlantirish: {e}")
-
-    return {"available": True, "paper_out": False, "near_end": False, "status_reason": "Normal"}
-
-
 def _match_by_usb(usb_ids: list, db_entry: dict) -> bool:
     """USB ID lar orqali printer turini aniqlaydi."""
     for vid, pid in usb_ids:
@@ -292,15 +214,6 @@ def detect_connected_printers() -> dict:
                     usb_match = True
                     break
 
-        # Maxsus Termal tekshiruvi: agar /dev/usb/lp* mavjud bo'lsa yoki POS kontroller bo'lsa
-        if ptype == "thermal" and not usb_match:
-            import glob
-            lp_ports = glob.glob("/dev/usb/lp*")
-            thermal_vids = {"0483", "0416", "1fc9", "0471", "0fe6", "6868", "0519", "28e9", "1a86"}
-            has_thermal_vid = any(vid in thermal_vids for vid, _ in usb_ids)
-            if has_thermal_vid or lp_ports:
-                usb_match = True
-
         cups_name = _match_by_cups_name(cups_printers, db)
 
         # Status va xatoliklarni aniqlash
@@ -319,11 +232,6 @@ def detect_connected_printers() -> dict:
             elif matching_cups.get("error"):
                 status_reason = matching_cups.get("status_reason", "Xatolik")
 
-        # Termal printer uchun CUPS shart emas — to'g'ridan-to'g'ri /dev/usb/lp0 orqali ishlaydi
-        if ptype == "thermal" and usb_match and not cups_name:
-            cups_name = "XP-58 (Direct)"
-            status_reason = "Tayyor (ESC/POS)"
-
         # FAQAT USB orqali apparat jismonan ulangan bo'lsagina is_connected True bo'ladi
         is_connected = usb_match
         ready = is_connected and not paper_out and not paper_jam
@@ -337,7 +245,6 @@ def detect_connected_printers() -> dict:
             "cups_name": cups_name,
             "label": db["label"],
             "media": db["media"],
-            "color": db["color"],
         }
         status_str = f"✅ Tayyor" if ready else (f"⚠️ {status_reason}" if is_connected else "❌ yo'q")
         logger.info(
@@ -348,79 +255,19 @@ def detect_connected_printers() -> dict:
 
 
 def get_printer_for_job(color_mode: str = "gray", job_type: str = "document", printer_type: str = "") -> dict:
-    """
-    Print job uchun eng mos printerni tanlaydi.
-
-    Args:
-        color_mode   : "gray" | "color"
-        job_type     : "document" | "receipt"
-        printer_type : "laser_bw" | "thermal" | "color" | ""
-    """
-    printers = detect_connected_printers()
-
-    # 0. Aniq ko'rsatilgan printer (masalan: dasturchi rejimi / thermal chek)
-    if printer_type == "thermal" or job_type == "receipt":
-        th = printers.get("thermal", {})
-        if th.get("connected"):
-            return {
-                "cups_name": th.get("cups_name") or "XP58",
-                "type": "thermal",
-                "media": "Roll58",
-                "found": True,
-                "reason": "Dasturchi testi / Chek → XP-58 termal printer"
-            }
-        return {"found": False, "reason": "XP-58 termal printeri ulanmagan"}
-
-    # 1. Rangli hujjat → rangli printer
-    if color_mode == "color":
-        p = printers.get("color", {})
-        if p.get("connected"):
-            if not p.get("ready"):
-                return {"found": False, "reason": f"Rangli printerda xatolik: {p.get('status_reason')}"}
-            return {
-                "cups_name": p["cups_name"],
-                "type": "color",
-                "media": p["media"],
-                "found": True,
-                "reason": "Rangli hujjat → rangli printer"
-            }
-        return {"found": False, "reason": "Rangli printer ulanmagan"}
-
-    # 2. Oq-qora hujjat / Asosiy holat → Canon LBP 3010 Lazer printer
-    p = printers.get("laser_bw", {})
-    if p.get("connected"):
-        if not p.get("ready"):
-            # Agar Canon muammoli bo'lsa va XP-58 ulangan bo'lsa (Dasturchi/Fallback)
-            th = printers.get("thermal", {})
-            if th.get("connected"):
-                return {
-                    "cups_name": th.get("cups_name") or "XP58",
-                    "type": "thermal",
-                    "media": "Roll58",
-                    "found": True,
-                    "reason": "Canon LBP band/xato → XP-58 ga yo'naltirildi (Dasturchi rejimi)"
-                }
-            return {"found": False, "reason": f"Canon LBP printerida muammo: {p.get('status_reason')}"}
-        return {
-            "cups_name": p["cups_name"] or "Canon-LBP3010",
-            "type": "laser_bw",
-            "media": p["media"],
-            "found": True,
-            "reason": "Hujjat → Canon LBP lazer printer"
-        }
-
-    # 3. Agar Canon ulanmagan bo'lsa, lekin XP-58 ulangan bo'lsa
-    th = printers.get("thermal", {})
-    if th.get("connected"):
-        return {
-            "cups_name": th.get("cups_name") or "XP58",
-            "type": "thermal",
-            "media": "Roll58",
-            "found": True,
-            "reason": "Canon ulanmagan → XP-58 termal printer ishlatilmoqda"
-        }
-
-    return {"found": False, "reason": "Canon LBP printeri ulanmagan yoki o'chirilgan"}
+    """Har qanday hujjat → Canon LBP (oq-qora). Argumentlar eski chaqiruvlar bilan moslik uchun qoldirilgan."""
+    p = detect_connected_printers().get("laser_bw", {})
+    if not p.get("connected"):
+        return {"found": False, "reason": "Canon LBP printeri ulanmagan yoki o'chirilgan"}
+    if not p.get("ready"):
+        return {"found": False, "reason": f"Canon LBP printerida muammo: {p.get('status_reason')}"}
+    return {
+        "cups_name": p["cups_name"] or "Canon-LBP3010",
+        "type": "laser_bw",
+        "media": p["media"],
+        "found": True,
+        "reason": "Hujjat → Canon LBP lazer printer",
+    }
 
 
 def get_all_printer_status(only_connected: bool = True) -> list[dict]:

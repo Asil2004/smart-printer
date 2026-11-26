@@ -14,7 +14,7 @@ Mijoz kartaga o'tkazadi → CardXabar Telegram'da "+2 537" deb yozadi
                      │
 Pi to'lov kuzatuvchisi xabarni o'qiydi (printchi-payments) → Render tasdiqlaydi
                      │
-Pi agenti faylni oladi → CUPS → Canon LBP3010 → qog'oz
+Pi agenti faylni oladi → CUPS → Canon LBP3010 (yagona printer, A4 oq-qora) → qog'oz
 ```
 
 ## Har kuni: hech narsa qilish shart emas
@@ -86,7 +86,6 @@ Render → **smart-printer** → **Environment**. Saqlagandan keyin Render serve
 | `ADMIN_TOKEN` | admin paroli (panel va admin tugmalari uchun) |
 | `AGENT_TOKEN` | Pi bilan maxfiy kalit. Pi'dagi `~/.config/printchi-agent.env` bilan bir xil bo'lishi kerak |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | admin boti |
-| `COLOR_ENABLED`, `THERMAL_ENABLED` | rangli yoki XP-58 printer ulanganda `1` qiling (saytda: `public/config.js` → `FEATURES`) |
 
 **Karta raqamini almashtirish:** `public/config.js` faylida `cardNumber`, `cardHolder` va `cardBank` ni o'zgartiring. Render'da `CARD_LAST4` ni ham almashtiring. Yangi karta @CardXabarBot'ga ulangan bo'lishi kerak.
 
