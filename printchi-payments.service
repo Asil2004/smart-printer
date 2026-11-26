@@ -1,0 +1,21 @@
+[Unit]
+Description=Smart Printchi - to'lov kuzatuvchisi (CardXabar → Render)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mypi3
+Group=mypi3
+WorkingDirectory=/home/mypi3/projects/smart-printer-main
+Environment="PYTHONUNBUFFERED=1"
+Environment="CLOUD_URL=https://smart-printer-mo1g.onrender.com"
+Environment="CARD_LAST4=2570"
+# AGENT_TOKEN shu faylda (git'ga tushmaydi)
+EnvironmentFile=/home/mypi3/.config/printchi-agent.env
+ExecStart=/home/mypi3/projects/smart-printer-main/venv/bin/python tools/payment_watcher.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

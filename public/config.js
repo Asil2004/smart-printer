@@ -14,9 +14,9 @@ const AppConfig = {
   // To'lov tizimi sozlamalari
   PAYMENT: {
     enabled: true,
-    cardNumber: "5614688700590424",          // Ravshanov Asilbek Humo kartasi
+    cardNumber: "5614681290252570",          // Ipoteka bank (…2570) — CardXabar kuzatadi, avtomatik tasdiq
     cardHolder: "Ravshanov Asilbek",
-    cardBank: "Humo",
+    cardBank: "Ipoteka bank",
     // Click P2P
     clickPhone: "+998944737627",
     clickMerchantId: "",     // Click merchant bo'lmasa bo'sh qoladi
