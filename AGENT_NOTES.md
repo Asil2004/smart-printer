@@ -32,6 +32,10 @@ Rahmat — Multicard Payment AJ mahsuloti; API: https://docs.multicard.uz (hoste
 - Statik Rahmat QR (`l.rhmt.uz/...`) summasiz va buyurtma raqamisiz — uni buyurtmaga bog'lab bo'lmaydi,
   shuning uchun har buyurtmaga alohida invoys yaratiladi.
 - Sinov: Multicard API soxtalashtirilgan 14 ta test ✅. Haqiqiy Multicard (dev-mesh) bilan sinalmagan.
+- **Yangilanish:** Rahmat API faqat YATT'ga beriladi; hozirgi hisob — o'zini o'zi band qilgan. Shuning uchun
+  `public/config.js` → `rahmatQrUrl` (statik QR) qo'shildi: API sozlanmagan bo'lsa "Rahmat" usuli statik QR'ni
+  ko'rsatadi, mijoz summani o'zi kiritadi → "To'lov qildim" → Telegram ✅ (xabarda "Usul: Rahmat ilovasi").
+  YATT ochilib `MULTICARD_*` kiritilsa — avtomatik API rejimiga o'tadi. Brauzerda tekshirildi (telefon kengligi ham).
 
 ---
 

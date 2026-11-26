@@ -374,7 +374,8 @@ p { margin: 0; }
 .order-code { font-family: var(--mono); font-size: 13px; font-weight: 500; background: var(--tile); border: 1px solid var(--line); padding: 6px 12px; border-radius: var(--r-pill); }
 .amount-tile { background: var(--panel); border-radius: var(--r-box); padding: 20px; display: flex; flex-direction: column; gap: 6px; }
 .amount-big { font-family: var(--mono); font-size: 40px; font-weight: 500; color: var(--on-panel); letter-spacing: -0.06em; font-variant-numeric: tabular-nums; }
-.methods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.methods { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; }
+.methods button[hidden] { display: none; }
 .methods button { min-height: 44px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--tile); font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .methods button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .pay-panel { background: var(--tile); border: 1px solid var(--line); border-radius: var(--r-tile); padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }

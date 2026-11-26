@@ -216,9 +216,12 @@ def order_summary(o: dict) -> str:
 
 def notify_claim(o: dict):
     """Mijoz 'To'ladim' bosganda adminga tasdiq so'rovi yuboriladi."""
+    method = {"rahmat": "Rahmat ilovasi (QR)", "card": "Karta", "click": "Click", "payme": "Payme",
+              "qr": "QR"}.get(o.get("claimed_method", ""), o.get("claimed_method", "") or "—")
+    where = "Rahmat ilovasidagi tushumlarni" if o.get("claimed_method") == "rahmat" else "Kartangizga shu summa tushganini"
     tg_send(
-        f"🧾 <b>To'lov tasdig'i kerak — #{o['id']}</b>\n{order_summary(o)}\n\n"
-        f"Kartangizga shu summa tushganini tekshiring.",
+        f"🧾 <b>To'lov tasdig'i kerak — #{o['id']}</b>\n{order_summary(o)}\n💳 Usul: {method}\n\n"
+        f"{where} tekshiring.",
         buttons=[[{"text": "✅ Tasdiqlash", "callback_data": f"pay:{o['id']}"},
                   {"text": "❌ Rad etish", "callback_data": f"rej:{o['id']}"}]],
     )

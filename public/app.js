@@ -479,7 +479,7 @@
         S.priceColor = data.price_color || S.priceColor;
         if (data.max_copies) { MAX_COPIES = data.max_copies; renderSettings(); }
         S.rahmatPay = !!data.rahmat_pay;
-        $('methodRahmat').hidden = !S.rahmatPay;
+        $('methodRahmat').hidden = !rahmatAvailable();
       }
     } catch (e) { /* ixtiyoriy */ }
   }
@@ -563,8 +563,17 @@
     if (!o) { panel.innerHTML = '<span class="typing" aria-label="Kutilmoqda"><span></span><span></span><span></span></span>'; return; }
     const p = payTargets(o.amount, o.id);
     const cardBlock = `<p class="card-no">${esc(p.cardPretty || 'Karta kiritilmagan')}</p><p class="holder">${esc(p.holder)}${p.bank ? ' · ' + esc(p.bank) : ''}</p>`;
-    // Rahmat: to'lov callback orqali avtomatik tasdiqlanadi — "To'lov qildim" kerak emas
-    $('payClaim').hidden = S.payMethod === 'rahmat';
+    // Rahmat API (YATT): to'lov callback orqali avtomatik tasdiqlanadi — "To'lov qildim" kerak emas.
+    // Rahmat statik QR (o'zini o'zi band qilgan): mijoz summani o'zi kiritadi → "To'lov qildim" → Telegram ✅
+    $('payClaim').hidden = S.payMethod === 'rahmat' && S.rahmatPay;
+    if (S.payMethod === 'rahmat' && !S.rahmatPay) {
+      const staticUrl = AppConfig.getPaymentConfig().rahmatQrUrl || '';
+      panel.innerHTML = `<img alt="Rahmat to‘lov QR-kodi" src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(staticUrl)}">
+        <a class="pay-link" href="${esc(staticUrl)}" target="_blank" rel="noopener">Rahmat orqali to‘lash</a>
+        <p class="hint">Telefon kamerasi bilan skanerlang va aniq <b>${esc(money(o.amount))}</b> kiriting.
+        To‘lagach, pastdagi <b>«To‘lov qildim»</b> tugmasini bosing. Buyurtma kodi: <b>#${esc(o.id)}</b></p>`;
+      return;
+    }
     if (S.payMethod === 'rahmat') {
       if (o.rahmatError) {
         panel.innerHTML = `<p class="hint">${esc(o.rahmatError)}</p><button class="btn-ghost" type="button" id="rahmatRetry">Qayta urinish</button>`;
@@ -600,6 +609,11 @@
     }
   }
 
+  // Rahmat: API (server sozlangan) yoki statik QR havolasi (config.js) bo'lsa ko'rsatiladi
+  function rahmatAvailable() {
+    return !!(S.rahmatPay || AppConfig.getPaymentConfig().rahmatQrUrl);
+  }
+
   async function ensureRahmatInvoice(o) {
     if (o.rahmatLoading) return;
     o.rahmatLoading = true;
@@ -628,7 +642,7 @@
 
   async function openPay(src) {
     if (S.order) return;
-    S.payMethod = S.rahmatPay ? 'rahmat' : 'qr';
+    S.payMethod = rahmatAvailable() ? 'rahmat' : 'qr';
     S.lastStatus = '';
     $('payOverlay').hidden = false;
     $('orderCode').textContent = '#······';
@@ -891,6 +905,7 @@
     $('tplSearch').addEventListener('input', renderTemplates);
 
     document.querySelectorAll('[data-method]').forEach((b) => b.addEventListener('click', () => { S.payMethod = b.dataset.method; renderPayPanel(); }));
+    $('methodRahmat').hidden = !rahmatAvailable();
     $('payClaim').addEventListener('click', claimPay);
     $('payCancel').addEventListener('click', cancelPay);
     $('resultBtn').addEventListener('click', () => { $('resultOverlay').hidden = true; refreshPrinters(); });

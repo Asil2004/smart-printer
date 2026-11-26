@@ -22,6 +22,9 @@ const AppConfig = {
     clickMerchantId: "",     // Click merchant bo'lmasa bo'sh qoladi
     clickServiceId: "",
     // Payme
+    // Rahmat (o'zini o'zi band qilgan hisob) — statik to'lov QR havolasi.
+    // Summa mijoz tomonidan kiritiladi, tasdiq "To'lov qildim" → Telegram ✅ orqali.
+    rahmatQrUrl: "https://l.rhmt.uz/49dwUt",
     paymeMerchantId: "",     // Payme merchant bo'lmasa bo'sh qoladi
     paymePhone: "+998944737627"
   },
