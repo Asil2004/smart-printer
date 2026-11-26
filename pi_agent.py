@@ -20,6 +20,8 @@ import uuid
 import shutil
 import logging
 import tempfile
+import json
+import threading
 import subprocess
 from pathlib import Path
 
@@ -53,6 +55,8 @@ except Exception:
     def detect_connected_printers():
         return {}
 
+import cups_jobs  # CUPS ish holati (IPP)
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] [Pi-Agent]: %(message)s",
@@ -63,6 +67,16 @@ logger = logging.getLogger("pi_agent")
 CLOUD_URL = os.environ.get("CLOUD_URL", "https://smart-printer-mo1g.onrender.com").rstrip("/")
 CANON_PRINTER = os.environ.get("PRINTER_NAME", "Canon-LBP3010")
 POLL_INTERVAL = 2
+# Render bilan umumiy maxfiy kalit (Render'dagi AGENT_TOKEN bilan bir xil bo'lishi kerak)
+AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "").strip()
+HEARTBEAT_INTERVAL = 5     # s — chop etish paytida ham to'xtamaydi (alohida oqim)
+BACKUP_INTERVAL = 10       # s — Render buyurtmalarini Pi'ga nusxalash
+BACKUP_DIR = Path(os.environ.get("AGENT_BACKUP_DIR", str(Path.home() / ".smart_printchi_backup")))
+PRINT_GIVE_UP_S = 20 * 60  # shuncha vaqtda tugamasa CUPS ishi bekor qilinadi
+
+cloud = requests.Session()
+if AGENT_TOKEN:
+    cloud.headers["X-Agent-Token"] = AGENT_TOKEN
 
 # ──────────────────────────────────────────────────────────
 # ESC/POS Buyruqlari (XP-58 Termal Printer uchun)
@@ -374,10 +388,12 @@ def print_file_to_xp58(file_path: Path, order: dict) -> bool:
     return True
 
 
-def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait", page_ranges: str = "") -> tuple[bool, str]:
+def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait",
+                   page_ranges: str = "", order_id: str = "", pages: int = 1) -> tuple[bool, str]:
     """
-    Canon LBP3010 ga CUPS orqali fayl yuboradi va uning haqiqatda chop
-    bo'lganini yoki qotib qolganini kuzatadi.
+    Canon LBP3010 ga CUPS orqali fayl yuboradi va ish HAQIQATAN tugaguncha kutadi.
+    captdriver qog'oz tugaganini CUPS'ga aytmaydi: ish shunchaki navbatda turadi.
+    Shuning uchun "PRINTED" faqat CUPS ishni "completed" qilganda qaytariladi.
     """
     cmd = ["lp", "-d", CANON_PRINTER, "-n", str(copies), "-o", "media=A4"]
     if orientation == "landscape":
@@ -394,38 +410,52 @@ def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait
         err = proc.stderr.strip()
         logger.error(f"CUPS xatoligi: {err}")
         return False, f"CUPS xatosi: {err}"
+    logger.info(f"CUPS qabul qildi: {proc.stdout.strip()}")
 
-    stdout = proc.stdout.strip()
-    logger.info(f"CUPS qabul qildi: {stdout}")
-
-    # Ish raqamini ajratib olish (masalan: Canon-LBP3010-25)
-    job_id = ""
-    for part in stdout.split():
-        if CANON_PRINTER in part:
-            job_id = part.strip()
-            break
-
+    job_id = cups_jobs.parse_lp_job_id(proc.stdout)
     if not job_id:
-        return True, "Chop etishga yuborildi"
+        return False, "CUPS ish raqamini qaytarmadi"
 
-    # Ish holatini 20 soniya davomida kuzatish (qog'oz chiqqanini tekshirish)
-    logger.info(f"Canon ish holati kuzatilmoqda: {job_id}...")
-    for _ in range(10):
+    started = time.time()
+    alert_after = 60 + 10 * max(1, pages) * max(1, copies)
+    alerted = False
+    unknown = 0
+    while True:
         time.sleep(2)
-        q_check = subprocess.run(["lpstat", "-o", CANON_PRINTER], stdout=subprocess.PIPE, text=True)
-        if job_id not in q_check.stdout:
-            logger.info(f"✅ Canon LBP3010 ishni muvaffaqiyatli yakunladi: {job_id}")
+        info = cups_jobs.get_job(CANON_PRINTER, job_id)
+        state = info.get("state")
+        reasons = str(info.get("reasons", ""))
+        if state in cups_jobs.FINAL_OK:
+            if "with-errors" in reasons:
+                return False, f"CUPS ishi xato bilan tugadi: {info.get('message', '')}"
+            logger.info(f"✅ Canon LBP3010 ishni yakunladi: #{job_id} ({int(time.time() - started)} s)")
             return True, "Muvaffaqiyatli chop etildi"
-
-    # Agar 20 soniyadan so'ng ham navbatda bo'lsa:
-    p_check = subprocess.run(["lpstat", "-p", CANON_PRINTER], stdout=subprocess.PIPE, text=True)
-    if "disabled" in p_check.stdout:
-        logger.warning("Canon printeri o'chirilgan (disabled) holatda!")
-        return False, "Canon navbatda to'xtab qoldi (disabled)"
-
-    # Aks holda, agar Rendering completed bo'lsa, CUPS printerga ma'lumot uzatmoqda
-    logger.info(f"Canon printeriga ma'lumot uzatildi, chop etish davom etmoqda: {job_id}")
-    return True, "Chop etishga yuborildi (printer ishlamoqda)"
+        if state in cups_jobs.FINAL_BAD:
+            return False, f"CUPS ishi {state}: {info.get('message', '')}"
+        # printer-error-policy=retry-job: buzilgan fayl qayta-qayta urinib yotmasin
+        if "with-errors" in reasons:
+            cups_jobs.cancel_job(CANON_PRINTER, job_id)
+            return False, f"Faylni chop etib bo'lmadi: {info.get('message', '')}"
+        if state == "unknown":
+            unknown += 1
+            if unknown >= 15:   # IPP javob bermayapti — lpstat bilan tekshiramiz
+                q = subprocess.run(["lpstat", "-o", CANON_PRINTER], stdout=subprocess.PIPE, text=True)
+                if f"{CANON_PRINTER}-{job_id} " not in q.stdout + " ":
+                    return True, "Chop etildi (lpstat)"
+                unknown = 0
+        else:
+            unknown = 0
+        elapsed = time.time() - started
+        if not alerted and elapsed > alert_after:
+            alerted = True
+            logger.warning(f"Canon #{job_id} {int(elapsed)} s dan beri tugamadi — qog'oz/USB?")
+            if order_id:
+                report(order_id, {"status": "PRINTING", "stuck": True,
+                                  "note": "Printer javob bermayapti — qog'oz yoki USB ulanishini tekshiring"})
+        if elapsed > PRINT_GIVE_UP_S:
+            cups_jobs.cancel_job(CANON_PRINTER, job_id)
+            return False, (f"Printer {PRINT_GIVE_UP_S // 60} daqiqa javob bermadi (qog'oz yoki USB). "
+                           f"Ish bekor qilindi.")
 
 
 def get_spool_dir() -> Path:
@@ -484,6 +514,118 @@ def ensure_single_instance():
             pass
 
 
+# ──────────────────────────────────────────────────────────
+# Render bilan aloqa: holat xabari, heartbeat, zaxira
+# ──────────────────────────────────────────────────────────
+_backup_lock = threading.Lock()
+
+
+def _backup_load() -> dict:
+    try:
+        return json.loads((BACKUP_DIR / "orders.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {"boot_id": "", "orders": {}}
+
+
+def _backup_save(data: dict):
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = BACKUP_DIR / "orders.json.tmp"
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(BACKUP_DIR / "orders.json")
+
+
+def report(order_id: str, payload: dict, tries: int = 3) -> bool:
+    """Buyurtma holatini Render'ga yuboradi (3 urinish) va Pi zaxirasida ham yangilaydi."""
+    with _backup_lock:
+        data = _backup_load()
+        o = data["orders"].get(order_id)
+        if o is not None:
+            o["status"] = payload.get("status", o.get("status"))
+            o["updated_at"] = time.time()
+            _backup_save(data)
+    for i in range(tries):
+        try:
+            r = cloud.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json=payload, timeout=10)
+            if r.ok or r.status_code == 404:
+                return r.ok
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(2 * (i + 1))
+    logger.warning(f"#{order_id} holatini ({payload.get('status')}) Render'ga yuborib bo'lmadi")
+    return False
+
+
+def sync_backup(server_boot_id: str):
+    """Render buyurtmalarini Pi'ga nusxalaydi; server qayta yongan bo'lsa — tiklaydi."""
+    with _backup_lock:
+        data = _backup_load()
+    files_dir = BACKUP_DIR / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    if data.get("boot_id") and data["boot_id"] != server_boot_id and data.get("orders"):
+        logger.warning("Render qayta ishga tushgan — buyurtmalar Pi zaxirasidan tiklanmoqda...")
+        handles = []
+        try:
+            files = {}
+            for oid, o in data["orders"].items():
+                f = files_dir / oid
+                if o.get("_has_file") and f.exists():
+                    h = open(f, "rb")
+                    handles.append(h)
+                    files[f"file_{oid}"] = (oid, h)
+            r = cloud.post(f"{CLOUD_URL}/api/agent/restore",
+                           data={"orders": json.dumps(list(data["orders"].values()), ensure_ascii=False)},
+                           files=files or None, timeout=(15, 300))
+            if not r.ok:
+                logger.error(f"Tiklash muvaffaqiyatsiz: HTTP {r.status_code} {r.text[:200]}")
+                return
+            logger.info(f"♻️ Tiklandi: {r.json().get('restored', 0)} ta buyurtma")
+        finally:
+            for h in handles:
+                h.close()
+
+    r = cloud.get(f"{CLOUD_URL}/api/agent/backup", timeout=15)
+    if not r.ok:
+        return
+    body = r.json()
+    new_orders = {o["id"]: o for o in body.get("orders", [])}
+    for oid, o in new_orders.items():
+        f = files_dir / oid
+        if o.get("_has_file") and not f.exists():
+            fr = cloud.get(f"{CLOUD_URL}/api/agent/backup/file/{oid}", timeout=(15, 300), stream=True)
+            if fr.ok:
+                tmp = f.with_suffix(".part")
+                with open(tmp, "wb") as out:
+                    for chunk in fr.iter_content(65536):
+                        out.write(chunk)
+                tmp.replace(f)
+    for f in files_dir.iterdir():   # faol bo'lmagan buyurtmalar fayllarini o'chirish
+        if f.name not in new_orders or not new_orders[f.name].get("_has_file"):
+            f.unlink(missing_ok=True)
+    with _backup_lock:
+        _backup_save({"boot_id": body.get("boot_id", server_boot_id), "orders": new_orders,
+                      "saved_at": time.time()})
+
+
+def heartbeat_and_backup_loop():
+    last_backup = 0.0
+    warned = False
+    while True:
+        try:
+            local_printers = get_all_printer_status()
+            r = cloud.post(f"{CLOUD_URL}/api/agent/heartbeat", json={"printers": local_printers}, timeout=10)
+            info = r.json() if r.ok else {}
+            if info.get("backup_enabled") and info.get("boot_id") and time.time() - last_backup > BACKUP_INTERVAL:
+                last_backup = time.time()
+                sync_backup(info["boot_id"])
+            elif r.ok and not info.get("backup_enabled") and not warned:
+                warned = True
+                logger.warning("Zaxira o'chiq: Render'da AGENT_TOKEN o'rnatilmagan")
+        except Exception as e:
+            logger.debug(f"Heartbeat/zaxira xatosi: {e}")
+        time.sleep(HEARTBEAT_INTERVAL)
+
+
 def process_job(job: dict):
     order_id = job["id"]
     if order_id in PROCESSED_JOBS:
@@ -498,10 +640,7 @@ def process_job(job: dict):
     logger.info(f"Yangi buyurtma qabul qilindi: #{order_id} ({job.get('filename')})")
 
     # 1. Holatni "PRINTING" ga o'tkazish
-    try:
-        requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTING"}, timeout=5)
-    except Exception:
-        pass
+    report(order_id, {"status": "PRINTING"})
 
     target = job.get("printer_type", "laser_bw")
     filename = job.get("filename", "")
@@ -513,7 +652,7 @@ def process_job(job: dict):
     try:
         download_url = f"{CLOUD_URL}/api/agent/download/{order_id}"
         logger.info(f"Fayl yuklab olinmoqda: {download_url}")
-        res = requests.get(download_url, timeout=(15, 300), stream=True)
+        res = cloud.get(download_url, timeout=(15, 300), stream=True)
         if not res.ok:
             raise RuntimeError(f"Faylni yuklab bo'lmadi: status {res.status_code}")
         total_dl = 0
@@ -535,8 +674,7 @@ def process_job(job: dict):
                 logger.info(f"Fayl PDF emas, matn sifatida chop etiladi: {tmp_file.name}")
     except Exception as e:
         logger.error(f"Fayl yuklab olishda xato: {e}")
-        requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
-                      json={"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"}, timeout=5)
+        report(order_id, {"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"})
         return
 
     # 1. Agar XP-58 (termal chek) tanlangan bo'lsa: faylni 384px ga zichlab chop etamiz!
@@ -544,10 +682,9 @@ def process_job(job: dict):
         logger.info(f"Buyurtma #{order_id} → XP-58 termal printeriga zichlab (raster) chiqarilmoqda...")
         ok = print_file_to_xp58(tmp_file, order=job)
         if ok:
-            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
+            report(order_id, {"status": "PRINTED"})
         else:
-            requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
-                          json={"status": "FAILED", "error": "XP-58 termal printer xatosi"}, timeout=5)
+            report(order_id, {"status": "FAILED", "error": "XP-58 termal printer xatosi"})
         try:
             tmp_file.unlink(missing_ok=True)
         except Exception:
@@ -558,15 +695,19 @@ def process_job(job: dict):
     copies = job.get("copies", 1)
     orientation = job.get("orientation", "portrait")
     ranges = job.get("page_ranges", "")
-    ok, note = print_to_canon(tmp_file, copies=copies, orientation=orientation, page_ranges=ranges)
+    ok, note = print_to_canon(tmp_file, copies=copies, orientation=orientation, page_ranges=ranges,
+                              order_id=order_id, pages=job.get("pages", 1))
+    try:
+        tmp_file.unlink(missing_ok=True)
+    except Exception:
+        pass
 
     if ok:
         logger.info(f"Buyurtma #{order_id} muvaffaqiyatli chop etildi!")
-        requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}", json={"status": "PRINTED"}, timeout=5)
+        report(order_id, {"status": "PRINTED"})
     else:
         logger.error(f"Canon muvaffaqiyatsiz bo'ldi: {note}")
-        requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
-                      json={"status": "FAILED", "error": note}, timeout=5)
+        report(order_id, {"status": "FAILED", "error": note})
 
     try:
         tmp_file.unlink(missing_ok=True)
@@ -627,23 +768,17 @@ def main():
     ensure_single_instance()
     cleanup_stale_files()
 
+    threading.Thread(target=heartbeat_and_backup_loop, daemon=True).start()
+
     while True:
         try:
-            # 1. Bulutga Raspberry Pi-dagi ulangan printerlar holatini yuborish
-            local_printers = get_all_printer_status()
-            try:
-                requests.post(f"{CLOUD_URL}/api/agent/heartbeat", json={"printers": local_printers}, timeout=5)
-            except Exception:
-                pass
-
-            # 2. Navbatdagi chop etiladigan buyurtmalarni tekshirish
-            r = requests.get(f"{CLOUD_URL}/api/agent/queue", timeout=5)
-            if r.ok:
-                data = r.json()
-                jobs = data.get("jobs", [])
-                for job in jobs:
+            r = cloud.get(f"{CLOUD_URL}/api/agent/queue", timeout=10)
+            if r.status_code == 401:
+                logger.error("Render agent kalitini rad etdi: AGENT_TOKEN ikkala tomonda bir xilmi?")
+            elif r.ok:
+                for job in r.json().get("jobs", []):
                     process_job(job)
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.RequestException:
             pass
         except Exception as e:
             logger.warning(f"Navbatni tekshirishda xatolik: {e}")

@@ -11,6 +11,8 @@ WorkingDirectory=/home/mypi3/projects/smart-printer-main
 Environment="PYTHONUNBUFFERED=1"
 Environment="CLOUD_URL=https://smart-printer-mo1g.onrender.com"
 Environment="PRINTER_NAME=Canon-LBP3010"
+# AGENT_TOKEN shu faylda (git'ga tushmaydi). Render'dagi AGENT_TOKEN bilan bir xil bo'lishi kerak.
+EnvironmentFile=-/home/mypi3/.config/printchi-agent.env
 ExecStart=/home/mypi3/projects/smart-printer-main/venv/bin/python pi_agent.py
 Restart=always
 RestartSec=5

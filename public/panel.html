@@ -63,7 +63,7 @@ button:disabled { opacity: .5; cursor: default; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
 .icon-btn { padding: 8px 14px; font-size: 12px; }
 .field { display: grid; gap: 6px; }
-.field input[type=url] { font: 400 14px var(--mono); padding: 10px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--ink); width: 100%; min-width: 0; }
+.field input[type=url], .field input[type=password] { font: 400 14px var(--mono); padding: 10px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--ink); width: 100%; min-width: 0; }
 .toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .toggle input { width: 18px; height: 18px; accent-color: var(--ok); }
 .hint { font-size: 12px; color: var(--muted); margin: 0; }
@@ -129,7 +129,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outlin
       <label class="hint" for="apiUrl">Server manzili</label>
       <input type="url" id="apiUrl" spellcheck="false" autocomplete="off">
     </div>
-    <p class="hint">Sahifani yopsangiz, server 15 daqiqadan keyin yana uxlaydi. Doimiy ishlashi uchun UptimeRobot kabi bepul xizmatda <code>/api/health</code> ga har 5 daqiqada so'rov qo'ying.</p>
+    <div class="field">
+      <label class="hint" for="adminToken">Admin parol (sinov sahifasi uchun, Render'dagi ADMIN_TOKEN)</label>
+      <input type="password" id="adminToken" spellcheck="false" autocomplete="current-password">
+    </div>
+    <p class="hint">Pi agenti ishlab tursa, u har 2 soniyada so'rov yuborib serverni uxlatmaydi. Agent o'chiq bo'lsa, server 15 daqiqadan keyin uxlaydi.</p>
   </section>
 
   <section aria-labelledby="logTitle" style="display:grid;gap:8px">
@@ -186,13 +190,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outlin
 
   const pill = (id, kind, text) => { const p = $(id); p.className = "pill " + kind; p.textContent = text; };
 
-  async function getJSON(path, { timeout = 15000, method = "GET", body } = {}) {
+  const tokenInput = $("adminToken");
+  tokenInput.value = store.get("PRINTCHI_ADMIN_TOKEN") || "";
+  tokenInput.addEventListener("change", () => store.set("PRINTCHI_ADMIN_TOKEN", tokenInput.value.trim()));
+
+  async function getJSON(path, { timeout = 15000, method = "GET", body, admin = false } = {}) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeout);
+    const headers = {};
+    if (body) headers["Content-Type"] = "application/json";
+    if (admin && tokenInput.value.trim()) headers["X-Admin-Token"] = tokenInput.value.trim();
     try {
       const res = await fetch(api() + path, {
         method, signal: ctl.signal, cache: "no-store",
-        headers: body ? { "Content-Type": "application/json" } : undefined,
+        headers,
         body: body ? JSON.stringify(body) : undefined
       });
       let data = null;
@@ -222,7 +233,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outlin
       return false;
     }
     try {
-      const [pr, q] = await Promise.all([getJSON("/api/printers"), getJSON("/api/agent/queue")]);
+      const pr = await getJSON("/api/printers");
       const printers = (pr.data && pr.data.printers) || [];
       if (printers.length) {
         pill("agentPill", "ok", "ulangan");
@@ -241,8 +252,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outlin
         pill("canonPill", "", "noma'lum");
         $("agentHelp").hidden = false;
       }
-      const jobs = (q.data && q.data.jobs) || [];
-      pill("queuePill", jobs.length ? "warn" : "ok", jobs.length ? jobs.length + " ta kutmoqda" : "bo'sh");
+      const queued = pr.data && typeof pr.data.queue === "number" ? pr.data.queue : null;
+      if (queued === null) pill("queuePill", "", "—");
+      else pill("queuePill", queued ? "warn" : "ok", queued ? queued + " ta kutmoqda" : "bo'sh");
     } catch (e) {
       log("Printer holatini olib bo'lmadi: " + e.message, "err");
     }
@@ -292,12 +304,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outlin
     testing = true;
     updateButtons();
     try {
-      const r = await getJSON("/api/dev/test_print", { method: "POST", body: { target: "laser_bw" }, timeout: 20000 });
+      if (!tokenInput.value.trim()) throw new Error("Sozlamalarga admin parolni kiriting");
+      const r = await getJSON("/api/dev/test_print", { method: "POST", body: { target: "laser_bw" }, timeout: 20000, admin: true });
       if (!r.ok || !r.data || !r.data.order_id) throw new Error((r.data && r.data.message) || "HTTP " + r.status);
       const id = r.data.order_id;
       log("Sinov buyurtmasi #" + id + " navbatga qo'yildi");
-      const until = Date.now() + 180000;
-      let last = "";
+      const until = Date.now() + 25 * 60000;   // agent 20 daqiqada bekor qiladi
+      let last = "", lastNote = "Printer qog'oz chiqarmoqda…";
       while (Date.now() < until) {
         await new Promise((res) => setTimeout(res, 2000));
         const s = await getJSON("/api/order/status/" + id).catch(() => null);
@@ -307,9 +320,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outlin
           const names = { PAID: "Pi agenti olishini kutmoqda", PRINTING: "Printer chop etmoqda", PRINTED: "Chop etildi, qog'ozni oling", FAILED: "Xato: " + (s.data.error || "noma'lum") };
           log("#" + id + " — " + (names[st] || st), st === "PRINTED" ? "ok" : st === "FAILED" ? "err" : "");
         }
+        const note = s && s.data && s.data.note;
+        if (note && note !== lastNote) { lastNote = note; log("#" + id + " — " + note, "err"); }
         if (st === "PRINTED" || st === "FAILED") break;
       }
-      if (last !== "PRINTED" && last !== "FAILED") log("#" + id + " 3 daqiqada tugamadi. Pi agentini va printerni tekshiring.", "err");
+      if (last !== "PRINTED" && last !== "FAILED") log("#" + id + " 25 daqiqada tugamadi. Pi agentini va printerni tekshiring.", "err");
     } catch (e) {
       log("Sinovni boshlab bo'lmadi: " + e.message, "err");
     } finally {

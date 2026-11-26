@@ -540,6 +540,26 @@ recent_orders = []
 _agent_last_seen = 0
 _agent_printers = []
 
+# Pi agenti bilan umumiy maxfiy kalit (Render env + Pi xizmati). O'rnatilmagan bo'lsa agent
+# endpointlari eski agentlar uchun ochiq qoladi, lekin zaxira/tiklash endpointlari O'CHIQ bo'ladi.
+AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "").strip()
+# Har ishga tushishda yangi: agent shu orqali server qayta yonganini (diski tozalanganini) sezadi.
+BOOT_ID = uuid.uuid4().hex
+
+
+def _agent_token_valid(req) -> bool:
+    import hmac
+    token = req.headers.get("X-Agent-Token", "")
+    return bool(AGENT_TOKEN) and hmac.compare_digest(token.encode(), AGENT_TOKEN.encode())
+
+
+def _agent_allowed(req) -> bool:
+    return not AGENT_TOKEN or _agent_token_valid(req)
+
+
+def _agent_denied():
+    return jsonify({"success": False, "message": "Agent kaliti (X-Agent-Token) noto'g'ri"}), 401
+
 
 @app.route("/api/printers", methods=["GET"])
 def get_printers():
@@ -563,9 +583,12 @@ def get_printers():
             if p.get("type") == "laser_bw" and p.get("connected"):
                 p["ready"] = False
                 p["status_reason"] = "Printer band: qog'oz yoki ulanishni tekshiring"
+    queued = sum(1 for o in list(payments.orders.values()) if o.get("status") == "PAID")
     return jsonify({
         "success": True,
-        "printers": printers
+        "printers": printers,
+        "queue": queued,
+        "agent_seen_ago": int(time.time() - _agent_last_seen) if _agent_last_seen else None,
     })
 
 
@@ -573,10 +596,13 @@ def get_printers():
 def agent_heartbeat():
     """Raspberry Pi agenti o'zining va ulangan printerlarning holatini xabar qiladi."""
     global _agent_last_seen, _agent_printers
+    if not _agent_allowed(request):
+        return _agent_denied()
     data = request.get_json(silent=True) or {}
     _agent_last_seen = time.time()
     _agent_printers = data.get("printers", [])
-    return jsonify({"success": True})
+    return jsonify({"success": True, "boot_id": BOOT_ID,
+                    "backup_enabled": bool(AGENT_TOKEN)})
 
 @app.route("/api/orders", methods=["GET"])
 def get_recent_orders():
@@ -1319,8 +1345,10 @@ def print_template():
 @app.route("/api/agent/queue", methods=["GET"])
 def agent_get_queue():
     """Raspberry Pi agenti uchun chop etilishi kerak bo'lgan buyurtmalar navbati."""
+    if not _agent_allowed(request):
+        return _agent_denied()
     jobs = []
-    for o in payments.orders.values():
+    for o in list(payments.orders.values()):
         if o.get("status") == "PAID" and o.get("ready_file"):
             jobs.append({
                 "id": o["id"],
@@ -1339,7 +1367,11 @@ def agent_get_queue():
 
 @app.route("/api/dev/test_print", methods=["POST"])
 def dev_test_print():
-    """Dasturchi testi: To'lovsiz darhol test cheki/hujjatini navbatga qo'yadi."""
+    """Dasturchi testi: To'lovsiz darhol test cheki/hujjatini navbatga qo'yadi (faqat admin)."""
+    if not payments.is_admin(request):
+        msg = ("Admin paroli noto'g'ri" if payments.ADMIN_TOKEN
+               else "Serverda ADMIN_TOKEN o'rnatilmagan — sinov o'chiq")
+        return jsonify({"success": False, "message": msg}), 401
     data = request.get_json(silent=True) or {}
     target = data.get("target", "thermal")  # "thermal" (XP-58) yoki "laser_bw" (Canon)
     order_id = uuid.uuid4().hex[:6].upper()
@@ -1374,31 +1406,131 @@ def dev_test_print():
 @app.route("/api/agent/download/<order_id>", methods=["GET"])
 def agent_download_file(order_id):
     """Raspberry Pi agenti chop etish uchun tayyor PDF faylni yuklab oladi."""
+    if not _agent_allowed(request):
+        return _agent_denied()
     order = payments.get_order(order_id)
     if not order or not order.get("ready_file"):
         return jsonify({"success": False, "message": "Fayl topilmadi"}), 404
     ready_path = Path(order["ready_file"])
     if not ready_path.exists():
         return jsonify({"success": False, "message": "Fayl mavjud emas"}), 404
-    return send_file(str(ready_path), as_attachment=True, download_name=f"job_{order_id}.pdf")
+    # Kengaytma haqiqiy fayl turiga mos bo'lsin (CUPS turini nomidan aniqlaydi)
+    suffix = ready_path.suffix.lower() or ".pdf"
+    return send_file(str(ready_path), as_attachment=True, download_name=f"job_{order_id}{suffix}")
 
 
 @app.route("/api/agent/status/<order_id>", methods=["POST"])
 def agent_update_status(order_id):
     """Raspberry Pi agenti chop etish holatini xabar qiladi."""
+    if not _agent_allowed(request):
+        return _agent_denied()
     order = payments.get_order(order_id)
     if not order:
         return jsonify({"success": False, "message": "Buyurtma topilmadi"}), 404
     data = request.get_json(silent=True) or {}
     st = data.get("status")
     if st == "PRINTED":
+        was_stuck = order.get("stuck")
         payments.set_status(order, "PRINTED", printed_at=time.time(), stuck=False, note="")
-        payments.tg_send(f"✅ <b>#{order['id']} Raspberry Pi orqali chop etildi!</b>\n💰 {order['amount']} so'm")
+        payments.tg_send(f"✅ <b>#{order['id']} Raspberry Pi orqali chop etildi!</b>"
+                         f"{' (kutishdan keyin)' if was_stuck else ''}\n💰 {order['amount']} so'm")
     elif st == "FAILED":
         _fail_order(order, data.get("error", "Chop etishda xatolik"))
     elif st == "PRINTING":
-        payments.set_status(order, "PRINTING", note="Printer qog'oz chiqarmoqda…")
+        stuck = bool(data.get("stuck"))
+        if stuck and not order.get("stuck"):
+            payments.tg_send(f"🟠 <b>#{order['id']} printerda kutib qoldi</b>\n"
+                             f"Canon LBP3010 ga qog'oz soling yoki USB kabelni tekshiring — ish o'zi davom etadi.")
+        payments.set_status(order, "PRINTING", stuck=stuck,
+                            note=data.get("note") or "Printer qog'oz chiqarmoqda…")
     return jsonify({"success": True, "status": order["status"]})
+
+
+# ── Zaxira: Render bepul tarifida disk vaqtinchalik. Pi agenti buyurtmalarni o'ziga
+#    nusxalaydi va server qayta yonsa (BOOT_ID o'zgarsa) ularni qaytarib yuklaydi. ──
+BACKUP_STATES = payments.ACTIVE_STATES + ("FAILED",)
+BACKUP_HISTORY_S = 24 * 3600
+
+
+def _backup_file_path(o: dict):
+    p = o.get("saved_path")
+    if not p:
+        return None
+    p = Path(p)
+    # Shablonlar repoda turadi — ularni nusxalash shart emas
+    try:
+        if p.resolve().is_relative_to(TEMPLATES_DIR.resolve()):
+            return None
+    except Exception:
+        pass
+    return p if p.exists() else None
+
+
+@app.route("/api/agent/backup", methods=["GET"])
+def agent_backup():
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    now = time.time()
+    out = []
+    for o in list(payments.orders.values()):
+        if o.get("status") in BACKUP_STATES or now - o.get("updated_at", 0) < BACKUP_HISTORY_S:
+            item = dict(o)
+            item["_has_file"] = bool(o.get("status") in BACKUP_STATES and _backup_file_path(o))
+            out.append(item)
+    return jsonify({"success": True, "boot_id": BOOT_ID, "orders": out[-300:]})
+
+
+@app.route("/api/agent/backup/file/<order_id>", methods=["GET"])
+def agent_backup_file(order_id):
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    order = payments.get_order(order_id)
+    path = _backup_file_path(order) if order else None
+    if not path:
+        return jsonify({"success": False, "message": "Fayl topilmadi"}), 404
+    return send_file(str(path), as_attachment=True, download_name=path.name)
+
+
+@app.route("/api/agent/restore", methods=["POST"])
+def agent_restore():
+    """Pi'dagi zaxiradan buyurtmalarni tiklaydi. Serverda bor buyurtmalarga tegmaydi (idempotent)."""
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    try:
+        items = json.loads(request.form.get("orders", "[]"))
+    except Exception:
+        return jsonify({"success": False, "message": "orders JSON noto'g'ri"}), 400
+    restored, to_prepare = 0, []
+    with payments._lock:
+        for o in items:
+            oid = str(o.get("id", "")).upper()
+            if not oid or oid in payments.orders:
+                continue
+            o.pop("_has_file", None)
+            up = request.files.get(f"file_{oid}")
+            if up:
+                name = secure_filename(Path(o.get("saved_path") or f"{oid}.bin").name) or f"{oid}.bin"
+                dest = UPLOAD_FOLDER / name
+                up.save(str(dest))
+                was_same = o.get("ready_file") == o.get("saved_path")
+                o["saved_path"] = str(dest)
+                o["ready_file"] = str(dest) if was_same else ""
+            elif o.get("status") in BACKUP_STATES and not (o.get("saved_path") and Path(o["saved_path"]).exists()):
+                o["status"] = "FAILED"
+                o["error"] = "Server qayta ishga tushdi va fayl tiklanmadi"
+                o["ready_file"] = ""
+            o["restored_at"] = time.time()
+            payments.orders[oid] = o
+            restored += 1
+            if o.get("status") == "PAID" and not o.get("ready_file"):
+                to_prepare.append(o)
+        payments.save_state()
+    for o in to_prepare:          # DOCX/rasmni qayta PDF ga aylantiradi, so'ng agent navbatiga
+        threading.Thread(target=_start_print, args=(o,), daemon=True).start()
+    if restored:
+        logger.warning(f"Zaxiradan {restored} ta buyurtma tiklandi (Pi agenti)")
+        payments.tg_send(f"♻️ Server qayta ishga tushdi: Pi zaxirasidan <b>{restored}</b> ta buyurtma tiklandi")
+    return jsonify({"success": True, "restored": restored, "boot_id": BOOT_ID})
 
 
 if __name__ == "__main__":
