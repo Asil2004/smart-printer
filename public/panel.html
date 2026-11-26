@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Printchi Boshqaruv</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: bitta ustun — holat kartochkasi, amallar, chek ko'rinishidagi jurnal. DESIGN.md "Ufq + Chek" tokenlari. */
+:root {
+  color-scheme: light;
+  --bg: #F3F4F1; --tile: #FFFFFF; --soft: #EEF0EB; --line: #DFE1DB;
+  --ink: #161719; --muted: #5C6168;
+  --accent: #C6F36B; --on-accent: #161719;
+  --ok: #15803D; --ok-bg: #DCFCE7;
+  --warn: #92400E; --warn-bg: #FEF3C7;
+  --err: #B91C1C; --err-bg: #FEE2E2;
+  --paper: #FFFFFF; --paper-ink: #161719; --paper-muted: #5E646A;
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0F1011; --tile: #1A1C1E; --soft: #232528; --line: #2E3135;
+  --ink: #F1F2EF; --muted: #A2A7AD;
+  --ok: #4ADE80; --ok-bg: #12301E;
+  --warn: #FBBF24; --warn-bg: #3A2A0B;
+  --err: #F87171; --err-bg: #3B1414;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font: 400 14px/1.5 var(--sans);
+  padding-block: max(24px, env(safe-area-inset-top, 0px)) max(32px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 640px; margin: 0 auto; display: grid; gap: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); font-size: 14px; margin: 2px 0 0; }
+.card { background: var(--tile); border: 1px solid var(--line); border-radius: 24px; padding: 20px; display: grid; gap: 14px; min-width: 0; }
+.label { font-size: 12px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.rows { display: grid; gap: 0; }
+.row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; padding-top: 0; }
+.row b { font-weight: 500; }
+.row small { display: block; color: var(--muted); font-size: 12px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--soft); color: var(--muted); }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.err { background: var(--err-bg); color: var(--err); }
+.pill.warn::before { animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: 500 14px var(--sans); border-radius: 999px; padding: 10px 18px; border: 1px solid var(--line); background: var(--tile); color: var(--ink); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+button:hover:not(:disabled) { border-color: var(--ink); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+.icon-btn { padding: 8px 14px; font-size: 12px; }
+.field { display: grid; gap: 6px; }
+.field input[type=url] { font: 400 14px var(--mono); padding: 10px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--ink); width: 100%; min-width: 0; }
+.toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--ok); }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+.hint code, .cmd { font-family: var(--mono); font-size: 12px; background: var(--soft); border-radius: 6px; padding: 1px 6px; }
+.cmd { display: block; padding: 10px 12px; overflow-x: auto; white-space: pre; border-radius: 12px; }
+.alert { border-radius: 16px; padding: 12px 14px; background: var(--warn-bg); color: var(--warn); font-size: 14px; display: grid; gap: 8px; }
+.receipt { background: var(--paper); color: var(--paper-ink); border-radius: 4px 4px 16px 16px; padding: 18px 18px 14px; font: 400 12px/1.6 var(--mono); font-variant-numeric: tabular-nums;
+  -webkit-mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / 8px 100%;
+          mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) 50% / 8px 100%;
+  border: 1px solid var(--line); max-height: 300px; overflow-y: auto; min-width: 0; }
+.receipt .head { text-align: center; border-bottom: 1px dashed var(--paper-muted); padding-bottom: 8px; margin-bottom: 8px; color: var(--paper-muted); }
+.log-line { display: grid; grid-template-columns: auto 1fr; gap: 10px; }
+.log-line time { color: var(--paper-muted); }
+.log-line span { overflow-wrap: anywhere; }
+.log-line.err span { color: #B91C1C; }
+.log-line.ok span { color: #3F6E12; }
+.big { font: 500 28px var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+@media (prefers-reduced-motion: reduce) { .pill.warn::before { animation: none; } }
+@media (max-width: 420px) { .row { grid-template-columns: 1fr; gap: 6px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Printchi boshqaruv paneli</h1>
+      <p class="sub">Render serverini uyg'otadi va Pi printerini tekshiradi</p>
+    </div>
+    <button class="icon-btn" id="themeBtn" type="button" aria-label="Rejimni almashtirish">Tun</button>
+  </header>
+
+  <section class="card" aria-labelledby="stTitle">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <span class="label" id="stTitle">Holat</span>
+      <span class="hint" id="lastCheck">tekshirilmagan</span>
+    </div>
+    <div class="rows">
+      <div class="row"><div><b>Render server</b><small id="srvNote">smart-printer-mo1g.onrender.com</small></div><span class="pill" id="srvPill">kutilmoqda</span></div>
+      <div class="row"><div><b>Pi agenti</b><small id="agentNote">Raspberry Pi navbatni har 2 soniyada so'raydi</small></div><span class="pill" id="agentPill">kutilmoqda</span></div>
+      <div class="row"><div><b>Canon LBP3010</b><small id="canonNote">A4, oq-qora lazer</small></div><span class="pill" id="canonPill">kutilmoqda</span></div>
+      <div class="row"><div><b>Navbat</b><small>to'langan, chop etilishini kutayotgan buyurtmalar</small></div><span class="pill" id="queuePill">—</span></div>
+    </div>
+    <div class="alert" id="agentHelp" hidden>
+      <span>Pi agenti javob bermayapti. Raspberry Pi'da agentni ishga tushiring:</span>
+      <code class="cmd">sudo systemctl restart printchi-agent</code>
+      <span>Xizmat o'rnatilmagan bo'lsa: <code>cd ~/projects/smart-printer-main &amp;&amp; nohup venv/bin/python pi_agent.py &gt; agent.log 2&gt;&amp;1 &amp;</code></span>
+    </div>
+    <div class="actions">
+      <button class="primary" id="wakeBtn" type="button">Serverni uyg'otish</button>
+      <button id="testBtn" type="button">Canon'da sinov sahifasi</button>
+    </div>
+    <div id="wakeBox" hidden>
+      <span class="label">Uyg'onmoqda</span>
+      <div class="big" id="wakeTimer">0 s</div>
+      <p class="hint">Render bepul tarifida server 15 daqiqa so'rov bo'lmasa uxlaydi. Uyg'onish 30–60 soniya oladi.</p>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="setTitle">
+    <span class="label" id="setTitle">Sozlamalar</span>
+    <label class="toggle"><input type="checkbox" id="keepAlive" checked> Sahifa ochiq turganda serverni uxlatmaslik (har 4 daqiqada so'rov)</label>
+    <div class="field">
+      <label class="hint" for="apiUrl">Server manzili</label>
+      <input type="url" id="apiUrl" spellcheck="false" autocomplete="off">
+    </div>
+    <p class="hint">Sahifani yopsangiz, server 15 daqiqadan keyin yana uxlaydi. Doimiy ishlashi uchun UptimeRobot kabi bepul xizmatda <code>/api/health</code> ga har 5 daqiqada so'rov qo'ying.</p>
+  </section>
+
+  <section aria-labelledby="logTitle" style="display:grid;gap:8px">
+    <span class="label" id="logTitle">Jurnal</span>
+    <div class="receipt" id="log" aria-live="polite">
+      <div class="head">SMART PRINTCHI · BOSHQARUV<br><span id="today"></span></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const DEFAULT_URL = "https://smart-printer-mo1g.onrender.com";
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+
+  // Tema (DESIGN.md: light asosiy, dark faqat tugma bilan)
+  const applyTheme = (t) => {
+    if (t === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    $("themeBtn").textContent = t === "dark" ? "Kun" : "Tun";
+  };
+  let theme = store.get("PANEL_THEME") || "light";
+  applyTheme(theme);
+  $("themeBtn").addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; store.set("PANEL_THEME", theme); applyTheme(theme); });
+
+  const urlInput = $("apiUrl");
+  urlInput.value = store.get("PANEL_API_URL") || DEFAULT_URL;
+  const api = () => urlInput.value.trim().replace(/\/+$/, "") || DEFAULT_URL;
+  urlInput.addEventListener("change", () => {
+    store.set("PANEL_API_URL", api());
+    try { $("srvNote").textContent = new URL(api()).host; } catch (e) {}
+    refresh();
+  });
+  try { $("srvNote").textContent = new URL(api()).host; } catch (e) {}
+
+  $("today").textContent = new Date().toLocaleDateString("uz-UZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  const log = (msg, kind = "") => {
+    const line = document.createElement("div");
+    line.className = "log-line " + kind;
+    const t = document.createElement("time");
+    t.textContent = new Date().toLocaleTimeString("uz-UZ", { hour12: false });
+    const s = document.createElement("span");
+    s.textContent = msg;
+    line.append(t, s);
+    const box = $("log");
+    box.insertBefore(line, box.children[1] || null);
+    while (box.children.length > 60) box.lastChild.remove();
+  };
+
+  const pill = (id, kind, text) => { const p = $(id); p.className = "pill " + kind; p.textContent = text; };
+
+  async function getJSON(path, { timeout = 15000, method = "GET", body } = {}) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeout);
+    try {
+      const res = await fetch(api() + path, {
+        method, signal: ctl.signal, cache: "no-store",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined
+      });
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      return { ok: res.ok, status: res.status, data };
+    } finally { clearTimeout(timer); }
+  }
+
+  let serverUp = false;
+  let canonReady = false;
+
+  async function refresh() {
+    try {
+      const h = await getJSON("/api/health", { timeout: 12000 });
+      if (!h.ok) throw new Error("HTTP " + h.status);
+      serverUp = true;
+      pill("srvPill", "ok", "ishlayapti");
+    } catch (e) {
+      serverUp = false;
+      pill("srvPill", "err", "uxlayapti yoki javob yo'q");
+      pill("agentPill", "", "noma'lum");
+      pill("canonPill", "", "noma'lum");
+      pill("queuePill", "", "—");
+      $("agentHelp").hidden = true;
+      $("lastCheck").textContent = "oxirgi tekshiruv: " + new Date().toLocaleTimeString("uz-UZ", { hour12: false });
+      updateButtons();
+      return false;
+    }
+    try {
+      const [pr, q] = await Promise.all([getJSON("/api/printers"), getJSON("/api/agent/queue")]);
+      const printers = (pr.data && pr.data.printers) || [];
+      if (printers.length) {
+        pill("agentPill", "ok", "ulangan");
+        $("agentHelp").hidden = true;
+        const canon = printers.find((p) => p.type === "laser_bw");
+        canonReady = !!(canon && canon.connected && canon.ready);
+        if (!canon || !canon.connected) pill("canonPill", "err", "ulanmagan");
+        else if (canon.paper_out) pill("canonPill", "warn", "qog'oz tugagan");
+        else if (canon.paper_jam) pill("canonPill", "err", "qog'oz tiqilgan");
+        else if (!canon.ready) pill("canonPill", "warn", canon.status_reason || "band");
+        else pill("canonPill", "ok", "tayyor");
+        $("canonNote").textContent = canon ? (canon.status_reason || "A4, oq-qora lazer") : "Pi agenti Canon'ni ko'rmayapti";
+      } else {
+        canonReady = false;
+        pill("agentPill", "err", "javob yo'q");
+        pill("canonPill", "", "noma'lum");
+        $("agentHelp").hidden = false;
+      }
+      const jobs = (q.data && q.data.jobs) || [];
+      pill("queuePill", jobs.length ? "warn" : "ok", jobs.length ? jobs.length + " ta kutmoqda" : "bo'sh");
+    } catch (e) {
+      log("Printer holatini olib bo'lmadi: " + e.message, "err");
+    }
+    $("lastCheck").textContent = "oxirgi tekshiruv: " + new Date().toLocaleTimeString("uz-UZ", { hour12: false });
+    updateButtons();
+    return true;
+  }
+
+  function updateButtons() {
+    $("testBtn").disabled = !serverUp || !canonReady || testing;
+    $("wakeBtn").textContent = serverUp ? "Qayta tekshirish" : "Serverni uyg'otish";
+  }
+
+  let waking = false;
+  async function wake() {
+    if (waking) return;
+    waking = true;
+    $("wakeBtn").disabled = true;
+    const start = Date.now();
+    pill("srvPill", "warn", "uyg'onmoqda");
+    $("wakeBox").hidden = false;
+    const tick = setInterval(() => { $("wakeTimer").textContent = Math.round((Date.now() - start) / 1000) + " s"; }, 500);
+    log("Serverga so'rov yuborildi: " + api());
+    let up = false;
+    for (let i = 0; i < 8 && !up; i++) {
+      try {
+        const h = await getJSON("/api/health", { timeout: 60000 });
+        up = h.ok;
+        if (!up) log("Server javobi: HTTP " + h.status, "err");
+      } catch (e) {
+        log("Hali javob yo'q, qayta urinilmoqda…");
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+    clearInterval(tick);
+    $("wakeBox").hidden = true;
+    const secs = Math.round((Date.now() - start) / 1000);
+    if (up) log("Server ishlayapti (" + secs + " s)", "ok");
+    else log("Server " + secs + " soniyada javob bermadi. Render boshqaruv panelini tekshiring.", "err");
+    await refresh();
+    waking = false;
+    $("wakeBtn").disabled = false;
+  }
+
+  let testing = false;
+  async function testPrint() {
+    testing = true;
+    updateButtons();
+    try {
+      const r = await getJSON("/api/dev/test_print", { method: "POST", body: { target: "laser_bw" }, timeout: 20000 });
+      if (!r.ok || !r.data || !r.data.order_id) throw new Error((r.data && r.data.message) || "HTTP " + r.status);
+      const id = r.data.order_id;
+      log("Sinov buyurtmasi #" + id + " navbatga qo'yildi");
+      const until = Date.now() + 180000;
+      let last = "";
+      while (Date.now() < until) {
+        await new Promise((res) => setTimeout(res, 2000));
+        const s = await getJSON("/api/order/status/" + id).catch(() => null);
+        const st = s && s.data && s.data.status;
+        if (st && st !== last) {
+          last = st;
+          const names = { PAID: "Pi agenti olishini kutmoqda", PRINTING: "Printer chop etmoqda", PRINTED: "Chop etildi, qog'ozni oling", FAILED: "Xato: " + (s.data.error || "noma'lum") };
+          log("#" + id + " — " + (names[st] || st), st === "PRINTED" ? "ok" : st === "FAILED" ? "err" : "");
+        }
+        if (st === "PRINTED" || st === "FAILED") break;
+      }
+      if (last !== "PRINTED" && last !== "FAILED") log("#" + id + " 3 daqiqada tugamadi. Pi agentini va printerni tekshiring.", "err");
+    } catch (e) {
+      log("Sinovni boshlab bo'lmadi: " + e.message, "err");
+    } finally {
+      testing = false;
+      refresh();
+    }
+  }
+
+  $("wakeBtn").addEventListener("click", () => { serverUp ? refresh().then(() => log("Holat yangilandi")) : wake(); });
+  $("testBtn").addEventListener("click", testPrint);
+
+  // Holatni har 15 soniyada yangilash; keep-alive har 4 daqiqada
+  setInterval(() => { if (!waking) refresh(); }, 15000);
+  setInterval(() => { if ($("keepAlive").checked && !waking) getJSON("/api/health", { timeout: 60000 }).catch(() => {}); }, 240000);
+  $("keepAlive").checked = store.get("PANEL_KEEPALIVE") !== "0";
+  $("keepAlive").addEventListener("change", (e) => store.set("PANEL_KEEPALIVE", e.target.checked ? "1" : "0"));
+
+  updateButtons();
+  wake();
+})();
+</script>
+</body>
+</html>

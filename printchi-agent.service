@@ -1,0 +1,19 @@
+[Unit]
+Description=Smart Printchi - Raspberry Pi agenti (Render navbatidan chop etadi)
+After=network-online.target cups.service
+Wants=network-online.target cups.service
+
+[Service]
+Type=simple
+User=mypi3
+Group=mypi3
+WorkingDirectory=/home/mypi3/projects/smart-printer-main
+Environment="PYTHONUNBUFFERED=1"
+Environment="CLOUD_URL=https://smart-printer-mo1g.onrender.com"
+Environment="PRINTER_NAME=Canon-LBP3010"
+ExecStart=/home/mypi3/projects/smart-printer-main/venv/bin/python pi_agent.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

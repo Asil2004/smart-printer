@@ -523,6 +523,16 @@ def process_job(job: dict):
                     f.write(chunk)
                     total_dl += len(chunk)
         logger.info(f"Fayl to'liq yuklandi ({total_dl / (1024*1024):.2f} MB): {tmp_file.name}")
+        # Server ba'zan oddiy matnni (masalan /api/dev/test_print) job_X.pdf nomi bilan beradi.
+        # CUPS turini kengaytmadan aniqlaydi: .pdf matn bo'lsa pdftopdf yiqiladi va qog'oz chiqmaydi.
+        if tmp_file.suffix == ".pdf":
+            with open(tmp_file, "rb") as f:
+                head = f.read(1024)
+            if b"%PDF" not in head:
+                txt_file = tmp_file.with_suffix(".txt")
+                tmp_file.rename(txt_file)
+                tmp_file = txt_file
+                logger.info(f"Fayl PDF emas, matn sifatida chop etiladi: {tmp_file.name}")
     except Exception as e:
         logger.error(f"Fayl yuklab olishda xato: {e}")
         requests.post(f"{CLOUD_URL}/api/agent/status/{order_id}",
