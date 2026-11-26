@@ -11,6 +11,10 @@ Bir faylni ikki agent bir vaqtda tahrirlamasin — "Hozir kim nima ustida" jadva
 | Antigravity  | `prezentatsiya.html`, `Smart_Printchi_Prezentatsiya.pptx` | Davom etmoqda (Claude tegmaydi) |
 | Claude       | `public/index.html`, `public/styles.css` (yangi), `public/app.js`, `public/config.js`, `templates/index.html`, `app.py`, `payments.py`, `start_demo.bat` (yangi), `DESIGN.md` (yangi) | Tugadi — 2026-11-15 |
 
+> **2026-11-26 (kech), Claude:** Rangli printer va XP-58 chek printeri loyihadan butunlay olib tashlandi (Asilbek qarori):
+> `printer_service.py`, `setup_xp58.sh`, `test_xp58_*.py`, `DUAL_PRINTER_*.md` o'chirildi; sayt, server, agent faqat Canon LBP3010 (A4, oq-qora).
+> To'lov: faqat kartaga o'tkazma, CardXabar orqali avtomatik tasdiq (`tools/payment_watcher.py`).
+
 > **2026-11-26, Claude:** `pi_agent.py`, `app.py` (agent API, zaxira, test_print), `public/panel.html` (yangi),
 > `printchi-agent.service` (yangi) o'zgardi — tafsilot `HISOBOT.md` da. Promokod `feat/control-panel` branchida
 > (`app.py`, `public/app.js`, `public/index.html`, `public/styles.css`). Antigravity: shu fayllarni o'zgartirishdan oldin o'qing.

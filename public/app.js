@@ -25,7 +25,6 @@
   // ── Holat ───────────────────────────────────────────────
   const S = {
     view: 'print',
-    printerType: 'laser_bw', // 'laser_bw' (Canon A4) yoki 'thermal' (XP-58 Chek)
     file: null,            // File (shablon tanlansa: {name, size: 0})
     template: null,        // tanlangan shablon: hujjat kabi yuklanadi, nusxa tanlanadi
     fileExt: '',
@@ -33,20 +32,17 @@
     counting: false,
     copies: 1,
     orientation: 'portrait',
-    color: 'gray',
     rangeMode: 'all',      // all | custom
     rangeText: '',
     priceBw: 250,
-    priceColor: 400,
     printers: [],
     printerReady: false,
-    colorReady: false,
     online: null,          // null = tekshirilmoqda
     userMsg: '',
     botLead: '',
     templates: [],
     order: null,           // {id, amount, pages, source}
-    payMethod: 'qr',
+    payMethod: (AppConfig.PAY_METHODS || ['card'])[0],
     pollTimer: null,
     lastStatus: '',
   };
@@ -116,7 +112,7 @@
 
   function unitPrice() {
     if (S.template) return S.template.price_per_page || S.priceBw;
-    return S.color === 'color' ? S.priceColor : S.priceBw;
+    return S.priceBw;
   }
 
   // ── Chat ────────────────────────────────────────────────
@@ -144,20 +140,13 @@
     if (S.rangeMode === 'custom' && !sel) return 'Betlar oralig‘ini to‘g‘ri kiriting';
     const range = S.rangeMode === 'all' ? `barcha ${S.pages} bet` : `${normRange(S.rangeText).replace(/-/g, '-')} (${sel} bet)`;
     const orient = S.orientation === 'landscape' ? 'albom' : 'kitob';
-    const color = S.color === 'color' ? 'rangli' : 'oq-qora';
-    const prn = S.printerType === 'thermal' ? 'XP-58 chek' : 'Canon A4';
-    return `${prn} · ${range} · ${orient} · ${color} · ${S.copies} nusxa = ${money(sel * S.copies * unitPrice())}`;
+    return `Canon A4 · ${range} · ${orient} · oq-qora · ${S.copies} nusxa = ${money(sel * S.copies * unitPrice())}`;
   }
 
   function renderChips() {
     const chips = $('chips');
     if (!S.file || S.counting) { chips.hidden = true; return; }
     const list = [];
-    if (S.printerType === 'thermal') {
-      list.push(['A4 printerga o‘tish', () => update({ printerType: 'laser_bw' }, 'Canon LBP3010 A4 lazer tanlandi.')]);
-    } else {
-      list.push(['Chek printerda chiqarish', () => update({ printerType: 'thermal' }, 'XP-58 termal chek printeri tanlandi.')]);
-    }
     if (S.copies < 2) list.push(['2 nusxa', () => update({ copies: 2 }, 'Tushundim: 2 nusxa.')]);
     else list.push(['1 nusxa', () => update({ copies: 1 }, 'Tushundim: 1 nusxa.')]);
     if (S.pages > 3 && !(S.rangeMode === 'custom' && normRange(S.rangeText) === '1-3')) {
@@ -189,14 +178,9 @@
     if ('max' in co) co.max = MAX_COPIES;
     $('copiesDec').disabled = S.copies <= 1;
     $('copiesInc').disabled = S.copies >= MAX_COPIES;
-    document.querySelectorAll('[data-printer]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.printer === S.printerType)));
     document.querySelectorAll('[data-orient]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.orient === S.orientation)));
     document.querySelectorAll('[data-range]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.range === S.rangeMode)));
-    document.querySelectorAll('[data-color]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.color === S.color)));
-    const cb = $('colorBtn');
-    cb.disabled = !S.colorReady;
-    cb.title = S.colorReady ? `Rangli: ${money(S.priceColor)}/bet` : 'Rangli printer ulanmagan';
-    ['lblOrient', 'lblPages', 'lblColor'].forEach((id) => { $(id).closest('.tile').hidden = !!S.template; });
+    ['lblOrient', 'lblPages'].forEach((id) => { $(id).closest('.tile').hidden = !!S.template; });
     $('rangeTile').hidden = S.rangeMode !== 'custom' || !!S.template;
     if ($('rangeInput').value !== S.rangeText) $('rangeInput').value = S.rangeText;
     const sel = selectedPages();
@@ -216,12 +200,10 @@
       return;
     }
     const sel = selectedPages();
-    const prnLabel = S.printerType === 'thermal' ? 'XP-58 Chek' : 'Canon A4 Lazer';
-    $('totalLabel').textContent = S.counting ? 'Hisoblanmoqda…' : `Jami · ${sel} bet × ${S.copies} nusxa [${prnLabel}]`;
+    $('totalLabel').textContent = S.counting ? 'Hisoblanmoqda…' : `Jami · ${sel} bet × ${S.copies} nusxa`;
     $('totalText').textContent = S.counting ? '…' : money(sel * S.copies * unitPrice());
     const canon = S.printers.find((p) => p.type === 'laser_bw' && p.connected);
-    const thermal = S.printers.find((p) => p.type === 'thermal' && p.connected);
-    const targetPrn = S.printerType === 'thermal' ? thermal : canon;
+    const targetPrn = canon;
     const isReady = targetPrn ? targetPrn.ready : S.printerReady;
     btn.disabled = S.counting || !sel || !isReady;
     btn.title = isReady ? '' : (targetPrn ? (targetPrn.status_reason || 'Tanlangan printer band') : 'Printer hozir tayyor emas');
@@ -234,23 +216,13 @@
     if (!S.online) { el.className = 'status err'; txt.textContent = 'Server bilan aloqa yo‘q'; return; }
 
     const canon = S.printers.find((p) => p.type === 'laser_bw' && p.connected);
-    const thermal = S.printers.find((p) => p.type === 'thermal' && p.connected);
 
-    if (canon && thermal) {
-      el.className = 'status ok';
-      txt.textContent = 'Canon LBP3010 (Lazer) va XP-58 (Chek) tayyor';
-    } else if (canon && canon.ready) {
+    if (canon && canon.ready) {
       el.className = 'status ok';
       txt.textContent = `${canon.label || 'Canon LBP3010'} tayyor · navbat yo‘q`;
-    } else if (thermal && thermal.ready) {
-      el.className = 'status ok';
-      txt.textContent = `${thermal.label || 'XP-58 Chek (Dev)'} tayyor`;
     } else if (canon) {
       el.className = 'status warn';
       txt.textContent = canon.status_reason || 'Canon band';
-    } else if (thermal) {
-      el.className = 'status warn';
-      txt.textContent = thermal.status_reason || 'XP-58 band';
     } else {
       const any = S.printers.find((p) => p.connected);
       if (any) {
@@ -283,7 +255,7 @@
   }
 
   // ── Yozma buyruqlarni tushunish ─────────────────────────
-  // "3 nusxa", "5-8 bet", "1,3,5", "albom", "kitob", "rangli", "oq-qora", "hammasi", "to'lash"
+  // "3 nusxa", "5-8 bet", "1,3,5", "albom", "kitob", "hammasi", "to'lash"
   function parseCommand(raw) {
     const t = raw.toLowerCase().replace(/[‘’ʻʼ`']/g, '\'').replace(/–|—/g, '-');
     const patch = {};
@@ -311,54 +283,14 @@
     }
     if (/albom|yotiq|landscape/.test(t)) { patch.orientation = 'landscape'; done.push('albom'); }
     else if (/kitob|tik\b|portrait/.test(t)) { patch.orientation = 'portrait'; done.push('kitob'); }
-    if (/oq-?qora|qora-?oq|\bbw\b/.test(t)) { patch.color = 'gray'; done.push('oq-qora'); }
-    else if (/rangli/.test(t)) {
-      if (S.colorReady) { patch.color = 'color'; done.push('rangli'); }
-      else done.push('rangli printer hozir ulanmagan, oq-qora qoldi');
-    }
-    if (/xp-?58|chek|termal|receipt|pos|kvitansiya/.test(t)) {
-      patch.printerType = 'thermal';
-      done.push('XP-58 termal chek printeri');
-    } else if (/canon|lazer|laser|a4|lbp/.test(t)) {
-      patch.printerType = 'laser_bw';
-      done.push('Canon LBP3010 A4 lazer printeri');
-    }
+    if (/rangli/.test(t)) done.push('faqat oq-qora chop etamiz');
     const wantsPay = /to'la|tola|chop et|bosib|tayyor|\bha\b/.test(t);
     return { patch, done, wantsPay };
-  }
-
-  async function triggerDevTest(target = 'thermal') {
-    toast(`${target === 'thermal' ? 'XP-58 Chek' : 'Canon LBP'} test buyrug‘i yuborilmoqda...`);
-    try {
-      const { ok, data } = await getJSON('/api/dev/test_print', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target })
-      });
-      if (ok && data.success) {
-        toast(`✅ #${data.order_id} ${target} sinov navbatga qo'yildi!`, 'ok');
-      } else {
-        toast('Test yuborilmadi', 'err');
-      }
-    } catch (e) {
-      toast('Server bilan aloqa yo‘q', 'err');
-    }
   }
 
   function onCommand(text) {
     text = text.trim();
     if (!text) return;
-
-    // Dasturchi buyruqlari
-    const lower = text.toLowerCase();
-    if (lower === 'test' || lower === 'sinov' || lower === 'xp58' || lower === 'chek' || lower === 'dev') {
-      triggerDevTest('thermal');
-      return;
-    }
-    if (lower === 'canon' || lower === 'lazer') {
-      triggerDevTest('laser_bw');
-      return;
-    }
 
     if (!S.file) {
       update({ userMsg: '' }, 'Avval faylni yuboring: pastdagi qisqich tugmasi yoki «Faylni tanlang».');
@@ -419,7 +351,7 @@
 
     // Rasm bo'lsa darhol 1 bet (serverga so'rovsiz chaqmoqdek ochiladi)
     if (['png', 'jpg', 'jpeg'].includes(ext)) {
-      update({ file, fileExt: ext, pages: 1, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
+      update({ file, fileExt: ext, pages: 1, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '' }, '');
       speak('Rasm qabul qilindi.');
       return;
     }
@@ -428,14 +360,14 @@
     if (ext === 'pdf') {
       const fastCount = await countPdfPagesFast(file);
       if (fastCount > 0) {
-        update({ file, fileExt: ext, pages: fastCount, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray', printerType: 'laser_bw' }, '');
+        update({ file, fileExt: ext, pages: fastCount, counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '' }, '');
         speak(`${fastCount} bet topildi.`);
         return;
       }
     }
 
     // DOCX yoki aniqlab bo'lmagan PDF uchun server orqali tekshirish
-    update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray', printerType: 'laser_bw' }, '');
+    update({ file, fileExt: ext, pages: 1, counting: true, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '' }, '');
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -455,14 +387,11 @@
       const { ok, data } = await getJSON('/api/printers');
       if (!ok) throw new Error();
       S.online = true;
-      S.printers = data.printers || [];
+      S.printers = (data.printers || []).filter((p) => p.type === 'laser_bw');
       S.autoPay = !!data.auto_payment;
       const bw = S.printers.find((p) => p.type === 'laser_bw');
       const any = bw || S.printers.find((p) => p.connected && p.ready);
       S.printerReady = !!(any && any.connected && any.ready);
-      const col = S.printers.find((p) => p.type === 'color');
-      S.colorReady = !!(col && col.connected && col.ready);
-      if (!S.colorReady && S.color === 'color') S.color = 'gray';
     } catch (e) {
       S.online = false;
       S.printerReady = false;
@@ -477,7 +406,6 @@
       const { ok, data } = await getJSON('/api/health');
       if (ok) {
         S.priceBw = data.price_bw || S.priceBw;
-        S.priceColor = data.price_color || S.priceColor;
         if (data.max_copies) { MAX_COPIES = data.max_copies; renderSettings(); }
       }
     } catch (e) { /* ixtiyoriy */ }
@@ -533,7 +461,7 @@
     if (!S.printerReady) { toast('Printer hozir tayyor emas. Birozdan so‘ng urinib ko‘ring.', 'err'); return; }
     S.view = 'print';
     update({ template: t, file: { name: t.name, size: 0 }, fileExt: (t.file || 'docx').split('.').pop(), pages: t.pages || 1,
-      counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray', orientation: 'portrait' },
+      counting: false, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', orientation: 'portrait' },
       `“${t.name}” tanlandi. Nusxa sonini tanlang, keyin to‘lang.`);
   }
 
@@ -588,7 +516,7 @@
 
   async function openPay(src) {
     if (S.order) return;
-    S.payMethod = 'qr';
+    S.payMethod = (AppConfig.PAY_METHODS || ['card'])[0];
     S.lastStatus = '';
     $('payOverlay').hidden = false;
     $('orderCode').textContent = '#······';
@@ -605,7 +533,6 @@
     $('payCancel').focus();
 
     const fd = new FormData();
-    fd.append('printer_type', S.printerType || 'laser_bw');
     if (src.kind === 'template') {
       fd.append('source', 'template');
       fd.append('template_id', src.template.id);
@@ -614,7 +541,6 @@
       fd.append('source', 'file');
       fd.append('file', S.file);
       fd.append('copies', String(S.copies));
-      fd.append('color_mode', S.color);
       fd.append('orientation', S.orientation);
       fd.append('page_ranges', S.rangeMode === 'custom' ? normRange(S.rangeText) : '');
     }
@@ -629,7 +555,7 @@
       const pageCount = (data && data.pages) || S.pages || 1;
       $('paySummary').textContent = src.kind === 'template'
         ? `Shablon: ${src.template.name}`
-        : `${pageCount} bet × ${S.copies} nusxa · ${S.color === 'color' ? 'rangli' : 'oq-qora'}`;
+        : `${pageCount} bet × ${S.copies} nusxa · oq-qora`;
       $('payClaim').disabled = false;
       $('promoBtn').disabled = false;
       setPayStatus('', S.autoPay
@@ -802,7 +728,7 @@
 
   function resetFile() {
     $('fileInput').value = '';
-    update({ file: null, template: null, fileExt: '', pages: 0, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
+    update({ file: null, template: null, fileExt: '', pages: 0, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '' }, '');
   }
 
   // ── Admin (logo bosilganda) ─────────────────────────────
@@ -972,15 +898,7 @@
       e.target.value = S.copies;
     });
     $('copiesOut').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
-    document.querySelectorAll('[data-printer]').forEach((b) => b.addEventListener('click', () => {
-      const pt = b.dataset.printer;
-      const msg = pt === 'thermal'
-        ? 'XP-58 termal chek printeri tanlandi (tezkor chek / dasturchi rejimi).'
-        : 'Canon LBP3010 (A4 lazer) printeri tanlandi.';
-      update({ printerType: pt }, msg);
-    }));
     document.querySelectorAll('[data-orient]').forEach((b) => b.addEventListener('click', () => update({ orientation: b.dataset.orient }, 'Yangiladim, chekka qarang.')));
-    document.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => update({ color: b.dataset.color }, 'Yangiladim, chekka qarang.')));
     document.querySelectorAll('[data-range]').forEach((b) => b.addEventListener('click', () => {
       update({ rangeMode: b.dataset.range }, 'Yangiladim, chekka qarang.');
       if (b.dataset.range === 'custom') $('rangeInput').focus();

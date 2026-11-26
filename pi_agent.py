@@ -6,10 +6,9 @@ Smart Printchi - Raspberry Pi Kiosk Print Agent
 Loyiha rahbari: Ravshanov Muhammad Ali
 
 Ushbu agent Raspberry Pi 3 da fonda ishlaydi (15-20 MB RAM):
-1. Canon LBP3010 (A4 Lazer) - Asosiy hujjatlar uchun
-2. XP-58 (58mm Termal Chek) - Dasturchi rejimi va cheklar uchun
-3. Bulutli Render.com serveridan navbatdagi buyurtmalarni avtomat oladi
-4. Uskuna holatini jonli ravishda Render ga yuboradi (Heartbeat)
+1. Canon LBP3010 (A4, oq-qora lazer) — yagona printer
+2. Bulutli Render.com serveridan navbatdagi buyurtmalarni avtomat oladi
+3. Uskuna holatini jonli ravishda Render ga yuboradi (Heartbeat), buyurtmalarni zaxiralaydi
 """
 
 import os
@@ -34,18 +33,6 @@ try:
 except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
     import requests
-
-try:
-    from PIL import Image, ImageDraw, ImageOps, ImageFont
-except ImportError:
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pillow"])
-        from PIL import Image, ImageDraw, ImageOps, ImageFont
-    except Exception:
-        Image = None
-        ImageDraw = None
-        ImageOps = None
-        ImageFont = None
 
 try:
     from printer_detector import get_all_printer_status, detect_connected_printers
@@ -77,316 +64,6 @@ PRINT_GIVE_UP_S = 20 * 60  # shuncha vaqtda tugamasa CUPS ishi bekor qilinadi
 cloud = requests.Session()
 if AGENT_TOKEN:
     cloud.headers["X-Agent-Token"] = AGENT_TOKEN
-
-# ──────────────────────────────────────────────────────────
-# ESC/POS Buyruqlari (XP-58 Termal Printer uchun)
-# ──────────────────────────────────────────────────────────
-ESC = b'\x1b'
-GS  = b'\x1d'
-INIT_PRINTER = ESC + b'@'
-ALIGN_CENTER = ESC + b'a\x01'
-ALIGN_LEFT   = ESC + b'a\x00'
-ALIGN_RIGHT  = ESC + b'a\x02'
-BOLD_ON      = ESC + b'E\x01'
-BOLD_OFF     = ESC + b'E\x00'
-DOUBLE_SIZE  = GS + b'!\x11'
-NORMAL_SIZE  = GS + b'!\x00'
-FEED_CUT     = b'\n\n\n\n' + GS + b'V\x00'
-
-
-def find_xp58_port() -> str | None:
-    """XP-58 printerining /dev/usb/lp* portini topadi."""
-    ports = glob.glob('/dev/usb/lp*')
-    if ports:
-        return ports[0]
-    return None
-
-
-def print_to_xp58(order: dict, note: str = "") -> bool:
-    """
-    XP-58 termal printeriga to'g'ridan-to'g'ri ESC/POS chek chiqaradi.
-    CUPS drayveriga bog'liq emas — 100% ishonchli va tezkor (0.1 soniya).
-    """
-    port = find_xp58_port()
-    if not port:
-        logger.warning("XP-58 porti topilmadi (/dev/usb/lp* yo'q)")
-        return False
-
-    oid = order.get("id", "TEST")
-    fname = order.get("filename", "Hujjat")
-    copies = order.get("copies", 1)
-    pages = order.get("pages", 1)
-    amount = order.get("amount", 0)
-    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-
-    data = bytearray()
-    data.extend(INIT_PRINTER)
-
-    # Sarlavha
-    data.extend(ALIGN_CENTER)
-    data.extend(DOUBLE_SIZE + BOLD_ON)
-    data.extend("SMART PRINTCHI\n".encode("utf-8", errors="ignore"))
-    data.extend(NORMAL_SIZE + BOLD_OFF)
-    data.extend("Avtomatlashtirilgan Kiosk\n".encode("utf-8", errors="ignore"))
-    data.extend("--------------------------------\n".encode("utf-8"))
-
-    # Ma'lumotlar
-    data.extend(ALIGN_LEFT)
-    data.extend(BOLD_ON + "Loyiha rahbari:\n".encode("utf-8") + BOLD_OFF)
-    data.extend("  Ravshanov Muhammad Ali\n".encode("utf-8", errors="ignore"))
-    data.extend(f"Buyurtma  : #{oid}\n".encode("utf-8", errors="ignore"))
-    data.extend(f"Fayl      : {fname[:24]}\n".encode("utf-8", errors="ignore"))
-    data.extend(f"Hajmi     : {pages} bet x {copies} nusxa\n".encode("utf-8", errors="ignore"))
-    data.extend(f"Summa     : {amount} so'm\n".encode("utf-8", errors="ignore"))
-    data.extend(f"Sana/Vaqt : {now_str}\n".encode("utf-8", errors="ignore"))
-
-    if note:
-        data.extend("--------------------------------\n".encode("utf-8"))
-        data.extend(BOLD_ON + f"Izoh: {note}\n".encode("utf-8", errors="ignore") + BOLD_OFF)
-
-    data.extend("--------------------------------\n".encode("utf-8"))
-    data.extend(ALIGN_CENTER)
-    data.extend(BOLD_ON + "CHOP ETILDI [OK]\n".encode("utf-8") + BOLD_OFF)
-    data.extend("https://smart-printer-mo1g.onrender.com\n".encode("utf-8"))
-    data.extend("--------------------------------\n".encode("utf-8"))
-    data.extend(FEED_CUT)
-
-    try:
-        with open(port, "wb") as f:
-            f.write(data)
-            f.flush()
-        logger.info(f"✅ XP-58 orqali chek chiqarildi (Buyurtma #{oid})")
-        return True
-    except PermissionError:
-        logger.error(f"XP-58 portiga ruxsat yetarli emas! 'sudo usermod -aG lp cail' kerak.")
-        return False
-    except Exception as e:
-        logger.error(f"XP-58 ga yozishda xatolik: {e}")
-        return False
-
-
-def image_to_escpos(image) -> bytes:
-    """
-    PIL Image obyektini XP-58 (384px) uchun ESC/POS raster komandalariga ('GS v 0') aylantiradi.
-    Har qanday rasm yoki PDF betini 384px ga zichlab, Floyd-Steinberg dithering bilan monoxrom qiladi.
-    """
-    if Image is None:
-        return b""
-    w, h = image.size
-    if w != 384:
-        new_w = 384
-        new_h = max(1, int(h * (384.0 / w)))
-        image = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-    if image.mode != "RGB":
-        image = image.convert("RGB")
-    bw = image.convert("1")
-
-    w, h = bw.size
-    row_bytes = (w + 7) // 8  # 384 // 8 = 48 bayt
-    raw = bw.tobytes()
-    inverted = bytes([~b & 0xFF for b in raw])
-
-    CHUNK_LINES = 256
-    buf = bytearray()
-    for start_y in range(0, h, CHUNK_LINES):
-        chunk_h = min(CHUNK_LINES, h - start_y)
-        chunk_start = start_y * row_bytes
-        chunk_end = (start_y + chunk_h) * row_bytes
-        chunk_data = inverted[chunk_start:chunk_end]
-
-        # GS v 0 0 xL xH yL yH
-        buf.extend(b"\x1d\x76\x30\x00")
-        buf.extend(bytes([row_bytes & 0xFF, (row_bytes >> 8) & 0xFF]))
-        buf.extend(bytes([chunk_h & 0xFF, (chunk_h >> 8) & 0xFF]))
-        buf.extend(chunk_data)
-
-    return bytes(buf)
-
-
-def pdf_to_images(pdf_path: Path, max_pages: int = 1) -> list:
-    """PDF sahifalarini (ko'pi bilan max_pages) PIL Image ro'yxatiga tezkor aylantirish."""
-    if Image is None:
-        return []
-    images = []
-    tmp_prefix = f"/tmp/thermal_pdf_{int(time.time())}_{uuid.uuid4().hex[:4]}"
-
-    # 1. pdftoppm orqali tezkor (scale-to-x 384, max 1 sahifa, timeout=10s)
-    try:
-        cmd = [
-            "pdftoppm", "-png", "-f", "1", "-l", str(max_pages),
-            "-scale-to-x", "384", "-scale-to-y", "-1",
-            str(pdf_path), tmp_prefix
-        ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-        if res.returncode == 0:
-            for f in sorted(glob.glob(f"{tmp_prefix}-*.png")):
-                try:
-                    with Image.open(f) as img:
-                        images.append(img.copy())
-                    os.remove(f)
-                except Exception:
-                    pass
-            if images:
-                return images
-    except Exception as e:
-        logger.debug(f"pdftoppm ishlamadi: {e}")
-
-    # 2. Ghostscript (gs) orqali (timeout=10s, faqat 1-sahifa)
-    try:
-        gs_cmd = [
-            "gs", "-sDEVICE=png16m", "-r72", "-dNOPAUSE", "-dBATCH", "-dSAFER",
-            "-dFirstPage=1", f"-dLastPage={max_pages}",
-            f"-sOutputFile={tmp_prefix}-%03d.png", str(pdf_path)
-        ]
-        res = subprocess.run(gs_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-        if res.returncode == 0:
-            for f in sorted(glob.glob(f"{tmp_prefix}-*.png")):
-                try:
-                    with Image.open(f) as img:
-                        images.append(img.copy())
-                    os.remove(f)
-                except Exception:
-                    pass
-            if images:
-                return images
-    except Exception as e:
-        logger.debug(f"gs xatosi: {e}")
-
-    return images
-
-
-def text_to_image(text: str):
-    """Oddiy matnni 384px kenglikdagi chiroyli rasmga aylantirish."""
-    if Image is None or ImageDraw is None:
-        return None
-    lines = []
-    for raw_line in text.split("\n"):
-        line = raw_line.rstrip()
-        while len(line) > 30:
-            lines.append(line[:30])
-            line = line[30:]
-        lines.append(line)
-
-    line_h = 24
-    img_h = max(60, len(lines) * line_h + 20)
-    img = Image.new("RGB", (384, img_h), (255, 255, 255))
-    d = ImageDraw.Draw(img)
-    y = 10
-    for l in lines:
-        d.text((10, y), l, fill=(0, 0, 0))
-        y += line_h
-    return img
-
-
-def write_to_thermal_port(port: str, data: bytes | bytearray, chunk_size: int = 1024, delay: float = 0.01) -> bool:
-    """XP-58 apparati USB buferi to'lib qotib qolmasligi uchun baytlarni bo'lib-bo'lib (chunk) yozadi."""
-    try:
-        with open(port, "wb") as f:
-            for offset in range(0, len(data), chunk_size):
-                chunk = data[offset:offset + chunk_size]
-                f.write(chunk)
-                f.flush()
-                if delay > 0:
-                    time.sleep(delay)
-        return True
-    except PermissionError:
-        logger.error("XP-58 portiga ruxsat yetarli emas! 'sudo usermod -aG lp cail' kerak.")
-        return False
-    except Exception as e:
-        logger.error(f"XP-58 ga yozishda xato: {e}")
-        return False
-
-
-def print_file_to_xp58(file_path: Path, order: dict) -> bool:
-    """
-    XP-58 termal chek printerida chop etish:
-    - Ko'p sahifali PDF/DOCX hujjatlar uchun rasmiy to'lov cheki (kvitansiya) chiqaradi.
-    - 1-sahifali rasm yoki kvitansiya bo'lsa, rasmni 384px ga moslab chiqaradi.
-    """
-    port = find_xp58_port()
-    if not port:
-        logger.warning("XP-58 porti topilmadi (/dev/usb/lp* yo'q)")
-        return False
-
-    oid = order.get("id", "TEST")
-    fname = order.get("filename", file_path.name)
-    copies = order.get("copies", 1)
-    pages = order.get("pages", 1)
-
-    # 1. Haqiqiy formatni aniqlash
-    is_pdf = False
-    try:
-        with open(file_path, "rb") as f:
-            header = f.read(16)
-            if b"%PDF" in header:
-                is_pdf = True
-    except Exception:
-        pass
-
-    # 2. Agar ko'p sahifali hujjat bo'lsa (masalan 9 betlik taqdimot yoki Word fayl):
-    # XP-58 58mm chek apparati bo'lgani uchun rasmiy chek/kvitansiya chiqarish to'g'ri va xavfsiz
-    if pages > 1 or (is_pdf and pages > 1):
-        logger.info(f"Ko'p sahifali hujjat (#{oid}, {pages} bet) → XP-58 da rasmiy buyurtma cheki chiqarilmoqda...")
-        return print_to_xp58(order, note="Ko'p sahifali hujjat qabul qilindi.\n(A4 chop etish uchun Canon LBP3010 tanlang)")
-
-    # 3. Yagona sahifali rasm yoki 1-sahifali fayl bo'lsa:
-    images = []
-    if is_pdf or file_path.suffix.lower() == ".pdf":
-        images = pdf_to_images(file_path, max_pages=1)
-
-    if not images and Image:
-        try:
-            with Image.open(file_path) as img:
-                images.append(img.copy())
-        except Exception:
-            pass
-
-    if not images and file_path.suffix.lower() in [".txt", ".receipt"]:
-        try:
-            txt = file_path.read_text(encoding="utf-8", errors="ignore")
-            t_img = text_to_image(txt)
-            if t_img:
-                images.append(t_img)
-        except Exception:
-            pass
-
-    if not images:
-        logger.info(f"Fayl matnli chek sifatida chiqarilmoqda: #{oid}")
-        return print_to_xp58(order, note="Buyurtma cheki")
-
-    # Rasmli chek tayyorlash
-    data = bytearray()
-    data.extend(INIT_PRINTER)
-    data.extend(ALIGN_CENTER)
-    data.extend(DOUBLE_SIZE + BOLD_ON)
-    data.extend("SMART PRINTCHI (58mm)\n".encode("utf-8", errors="ignore"))
-    data.extend(NORMAL_SIZE + BOLD_OFF)
-    data.extend(f"Buyurtma: #{oid} | {fname[:20]}\n".encode("utf-8", errors="ignore"))
-    data.extend("--------------------------------\n".encode("utf-8"))
-
-    for idx, img in enumerate(images):
-        raster_bytes = image_to_escpos(img)
-        data.extend(raster_bytes)
-        data.extend(b"\n")
-
-    now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-    data.extend(ALIGN_CENTER)
-    data.extend("--------------------------------\n".encode("utf-8"))
-    data.extend(BOLD_ON + "CHOP ETILDI [OK]\n".encode("utf-8") + BOLD_OFF)
-    data.extend("Loyiha: Ravshanov Muhammad Ali\n".encode("utf-8"))
-    data.extend(f"Sana: {now_str}\n".encode("utf-8"))
-    data.extend("--------------------------------\n".encode("utf-8"))
-    data.extend(FEED_CUT)
-
-    for _ in range(max(1, min(copies, MAX_COPIES))):
-        ok = write_to_thermal_port(port, data)
-        if not ok:
-            return False
-
-    logger.info(f"✅ XP-58 da muvaffaqiyatli chop etildi (#{oid})")
-    return True
-
 
 def print_to_canon(pdf_path: Path, copies: int = 1, orientation: str = "portrait",
                    page_ranges: str = "", order_id: str = "", pages: int = 1) -> tuple[bool, str]:
@@ -706,7 +383,6 @@ def process_job(job: dict):
     # 1. Holatni "PRINTING" ga o'tkazish
     report(order_id, {"status": "PRINTING"})
 
-    target = job.get("printer_type", "laser_bw")
     filename = job.get("filename", "")
 
     # Faylni xavfsiz spool papkasiga yuklab olish
@@ -741,21 +417,7 @@ def process_job(job: dict):
         report(order_id, {"status": "FAILED", "error": f"Agent yuklay olmadi: {e}"})
         return
 
-    # 1. Agar XP-58 (termal chek) tanlangan bo'lsa: faylni 384px ga zichlab chop etamiz!
-    if target == "thermal" or filename.endswith(".receipt"):
-        logger.info(f"Buyurtma #{order_id} → XP-58 termal printeriga zichlab (raster) chiqarilmoqda...")
-        ok = print_file_to_xp58(tmp_file, order=job)
-        if ok:
-            report(order_id, {"status": "PRINTED"})
-        else:
-            report(order_id, {"status": "FAILED", "error": "XP-58 termal printer xatosi"})
-        try:
-            tmp_file.unlink(missing_ok=True)
-        except Exception:
-            pass
-        return
-
-    # 2. Asosiy: Canon LBP3010 (A4 lazer)
+    # Canon LBP3010 (A4 lazer)
     copies = job.get("copies", 1)
     orientation = job.get("orientation", "portrait")
     ranges = job.get("page_ranges", "")
@@ -793,22 +455,6 @@ def fix_canon_cups():
 
 
 def main():
-    if "--test-xp58" in sys.argv:
-        print("[*] XP-58 Termal Printer sinovi...")
-        test_job = {
-            "id": "DEV-TEST",
-            "filename": "dasturchi_sinovi.receipt",
-            "copies": 1,
-            "pages": 1,
-            "amount": 0,
-        }
-        res = print_to_xp58(test_job, note="Dasturchi sinovi muvaffaqiyatli!")
-        if res:
-            print("[OK] XP-58 qog'oz chiqardi!")
-        else:
-            print("[XATO] XP-58 dan qog'oz chiqmadi.")
-        return
-
     if "--test-canon" in sys.argv:
         print("[*] Canon LBP3010 Lazer printer sinovi...")
         test_file = Path("/usr/share/cups/data/default-testpage.pdf")
@@ -826,8 +472,6 @@ def main():
     logger.info("  Smart Printchi - Raspberry Pi Agenti Ishga Tushdi")
     logger.info(f"  Bulut manzili   : {CLOUD_URL}")
     logger.info(f"  Asosiy (Lazer)  : {CANON_PRINTER}")
-    xp_port = find_xp58_port()
-    logger.info(f"  Dasturchi (POS) : {'XP-58 (' + xp_port + ')' if xp_port else 'Ulanmagan'}")
     logger.info("==================================================")
     ensure_single_instance()
     cleanup_stale_files()

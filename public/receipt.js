@@ -11,14 +11,13 @@
     const file = document.querySelector('#chat .file-name');
     if (!file) return [['Fayl', 'kutilmoqda']];
     if (document.querySelector('#chat .file-bubble')?.dataset.kind === 'template') {
-      const thermalT = pressed('data-printer')?.dataset.printer === 'thermal';
       const pagesT = ($('totalLabel').textContent.match(/(\d+)\s*bet/) || [, '1'])[1];
       const copiesT = $('copiesOut').value;
       const totalT = parseInt($('totalText').textContent.replace(/\D/g, ''), 10) || 0;
       const unitT = Math.round(totalT / Math.max(1, pagesT * copiesT));
       return [
         ['Shablon', file.textContent],
-        ['Printer', thermalT ? 'XP-58, chek 58 mm' : 'Canon, A4 lazer'],
+        ['Printer', 'Canon, A4 lazer'],
         ['Betlar', pagesT],
         ['Nusxa', `× ${copiesT}`],
         ['Narx', `${unitT} so‘m / bet`],
@@ -27,18 +26,16 @@
     const label = $('totalLabel').textContent;
     const counting = /Hisoblanmoqda/.test(label);
     const pagesMatch = label.match(/(\d+)\s*bet/);
-    const thermal = pressed('data-printer')?.dataset.printer === 'thermal';
     const custom = pressed('data-range')?.dataset.range === 'custom';
-    const color = pressed('data-color')?.dataset.color === 'color';
     const orient = pressed('data-orient')?.dataset.orient === 'landscape' ? 'albom' : 'kitob';
     const pages = counting ? 'sanalmoqda…' : (pagesMatch ? pagesMatch[1] : '?') + (custom ? ` (${$('rangeInput').value.trim() || '?'})` : ', hammasi');
     return [
       ['Fayl', file.textContent],
-      ['Printer', thermal ? 'XP-58, chek 58 mm' : 'Canon, A4 lazer'],
+      ['Printer', 'Canon, A4 lazer'],
       ['Betlar', pages],
-      ['Format', `${orient}, ${color ? 'rangli' : 'oq-qora'}`],
+      ['Format', `${orient}, oq-qora`],
       ['Nusxa', `× ${$('copiesOut').value}`],
-      ['Narx', `${color ? 400 : 250} so‘m / bet`],
+      ['Narx', '250 so‘m / bet'],
     ];
   }
 

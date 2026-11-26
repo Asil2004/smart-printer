@@ -25,12 +25,10 @@ from pypdf import PdfReader
 
 # Smart printer routing & service moduli
 from printer_detector import get_printer_for_job, get_all_printer_status, detect_connected_printers
-from printer_service import PrinterService
 import config  # TELEGRAM_* va boshqa sozlamalar
 import payments  # buyurtma, to'lov tasdig'i, admin token
 import cups_jobs  # CUPS ish holatini kuzatish (IPP)
 import catalog  # shablon rasmlari va promokodlar ombori
-printer_service = PrinterService()
 
 # CORS moduli (Netlify saytidan so'rovlarni qabul qilish uchun)
 try:
@@ -58,7 +56,6 @@ ALLOWED_EXTENSIONS = {"pdf", "docx", "png", "jpg", "jpeg"}
 
 # Narxlar (so'mda) - Jonli kalkulyator uchun
 PRICE_PER_PAGE_BW = 250      # Oq-qora bir sahifa
-PRICE_PER_PAGE_COLOR = 400   # Rangli bir sahifa
 MAX_COPIES = config.MAX_COPIES  # bitta buyurtmada eng ko'p nusxa
 FILE_RETENTION_SECONDS = 1800  # 30 daqiqadan so'ng fayllarni o'chirish
 
@@ -306,7 +303,6 @@ def health_check():
         "printers": printers,           # Barcha printerlar holati (UI uchun)
         "price_bw": PRICE_PER_PAGE_BW,
         "max_copies": MAX_COPIES,
-        "price_color": PRICE_PER_PAGE_COLOR,
         "payment_verification": payments.REQUIRE_PAYMENT,
         "confirm_via": "telegram" if payments.telegram_enabled() else "admin",
         "timestamp": time.time()
@@ -348,10 +344,7 @@ def inspect_file():
 @app.route("/api/print", methods=["POST"])
 def print_document():
     """
-    Faylni qabul qiladi va Smart Router orqali to'g'ri printerga yuboradi:
-      - job_type=receipt  → XP-58 termal printer
-      - color_mode=gray   → Canon lazer (oq-qora)
-      - color_mode=color  → Rangli printer
+    Faylni qabul qiladi va Canon LBP3010 ga (A4, oq-qora) yuboradi (faqat admin).
     """
     blocked = _require_paid_or_admin()
     if blocked:
@@ -370,11 +363,9 @@ def print_document():
         }), 400
 
     # ── Parametrlar ──────────────────────────────────────
-    color_mode  = request.form.get("color_mode", "gray")      # "gray" | "color"
     orientation = request.form.get("orientation", "portrait")
     duplex      = request.form.get("duplex", "one-sided")
     page_ranges = request.form.get("page_ranges", "").strip()
-    job_type    = request.form.get("job_type", "document")    # "document" | "receipt"
 
     try:
         copies = int(request.form.get("copies", 1))
@@ -390,7 +381,7 @@ def print_document():
     logger.info(f"Fayl saqlandi: {saved_path}")
 
     # ── Smart Router: qaysi printer? ─────────────────────
-    routing = get_printer_for_job(color_mode=color_mode, job_type=job_type)
+    routing = get_printer_for_job()
     logger.info(f"Smart Routing: {routing}")
 
     if not routing.get("found"):
@@ -406,14 +397,8 @@ def print_document():
     routing_reason   = routing["reason"]
 
     # ── Faylni chop etishga tayyorlash ───────────────────
-    # Termal printer uchun: faqat rasm PDF ga 58mm formatda o'tkaziladi
     try:
-        if routing["type"] == "thermal":
-            # Termal: DOCX/PDF ham qabul qilinadi, lekin rasm 58mm formatga o'tkaziladi
-            ready_file = prepare_printable_file(saved_path)
-        else:
-            # A4 lazer/rangli printerlar uchun
-            ready_file = prepare_printable_file(saved_path)
+        ready_file = prepare_printable_file(saved_path)
     except Exception as e:
         logger.error(f"Faylni tayyorlashda xatolik: {e}")
         return jsonify({
@@ -425,27 +410,9 @@ def print_document():
     cmd = ["lp", "-d", selected_printer, "-n", str(copies)]
     cmd.extend(["-o", f"media={selected_media}"])
 
-    if routing["type"] != "thermal":
-        # Orientatsiya (termal printerda orientatsiya yo'q)
-        if orientation == "landscape":
-            cmd.extend(["-o", "orientation-requested=4"])
-        else:
-            cmd.extend(["-o", "orientation-requested=3"])
-
-        # Rang
-        if color_mode == "color":
-            cmd.extend(["-o", "ColorModel=Color"])
-        else:
-            cmd.extend(["-o", "ColorModel=Gray"])
-
-        # Duplex
-        if duplex == "two-sided":
-            cmd.extend(["-o", "sides=two-sided-long-edge"])
-        else:
-            cmd.extend(["-o", "sides=one-sided"])
-    else:
-        # Termal: har doim oq-qora, bir tomonlama, portrait
-        cmd.extend(["-o", "ColorModel=Gray", "-o", "sides=one-sided"])
+    cmd.extend(["-o", "orientation-requested=4" if orientation == "landscape" else "orientation-requested=3"])
+    cmd.extend(["-o", "ColorModel=Gray"])
+    cmd.extend(["-o", "sides=two-sided-long-edge" if duplex == "two-sided" else "sides=one-sided"])
 
     # Sahifalar oralig'i
     if page_ranges and page_ranges.lower() not in ["all", "barchasi"]:
@@ -479,27 +446,6 @@ def print_document():
     recent_orders.append(order_info)
     if len(recent_orders) > 50:
         recent_orders.pop(0)
-
-    # ── Termal printer (XP-58) to'g'ridan-to'g'ri chop etish ──
-    if routing["type"] == "thermal":
-        try:
-            printer_service.print_to_thermal(saved_path, copies=copies)
-            return jsonify({
-                "success":        True,
-                "simulated":      False,
-                "message":        f"Hujjat [{selected_printer}] termal printerda muvaffaqiyatli chop etildi!",
-                "printer":        selected_printer,
-                "printer_type":   routing["type"],
-                "routing_reason": routing_reason,
-                "copies":         copies,
-                "order":          order_info,
-            })
-        except Exception as e:
-            logger.error(f"Termal printer xatosi: {e}")
-            return jsonify({
-                "success": False,
-                "message": f"Termal printer xatosi [{selected_printer}]: {str(e)}"
-            }), 500
 
     # ── Simulyatsiya rejimi (Windows / test) ─────────────
     if not shutil.which("lp"):
@@ -661,19 +607,15 @@ def _int_form(src, key, default, lo=None, hi=None):
 def _execute_print(saved_path: Path, color_mode="gray", copies=1, orientation="portrait",
                    duplex="one-sided", page_ranges="") -> dict:
     """Faylni Smart Router tanlagan printerga yuboradi. Xato bo'lsa RuntimeError."""
-    routing = get_printer_for_job(color_mode=color_mode, job_type="document")
+    routing = get_printer_for_job()
     if not routing.get("found"):
         raise RuntimeError(routing.get("reason", "Mos printer topilmadi"))
     printer = routing["cups_name"]
 
-    if routing["type"] == "thermal":
-        printer_service.print_to_thermal(saved_path, copies=copies)
-        return {"printer": printer, "simulated": False}
-
     ready_file = prepare_printable_file(saved_path)
     cmd = ["lp", "-d", printer, "-n", str(copies), "-o", f"media={routing['media']}",
            "-o", "orientation-requested=4" if orientation == "landscape" else "orientation-requested=3",
-           "-o", "ColorModel=Color" if color_mode == "color" else "ColorModel=Gray",
+           "-o", "ColorModel=Gray",
            "-o", "sides=two-sided-long-edge" if duplex == "two-sided" else "sides=one-sided"]
     if page_ranges and page_ranges.lower() not in ("all", "barchasi"):
         cmd += ["-o", f"page-ranges={page_ranges}"]
@@ -843,8 +785,8 @@ def create_pending_order():
     """
     To'lovdan oldin buyurtma yaratadi. Narx SERVERDA hisoblanadi.
     source:
-      - file     : multipart "file" (+ color_mode, copies, orientation, duplex, page_ranges)
-      - template : "template_id" (+ copies, color_mode)
+      - file     : multipart "file" (+ copies, orientation, duplex, page_ranges)
+      - template : "template_id" (+ copies)
     """
     if _stuck_order():
         return jsonify({"success": False, "printer_busy": True,
@@ -852,8 +794,9 @@ def create_pending_order():
     form   = request.form if request.form else (request.get_json(silent=True) or {})
     source = form.get("source", "file")
     copies = _int_form(form, "copies", 1, 1, MAX_COPIES)
-    color_mode = "color" if form.get("color_mode") == "color" else "gray"
-    printer_type = form.get("printer_type", "laser_bw")
+    # Yagona printer: Canon LBP3010 (A4, oq-qora)
+    color_mode = "gray"
+    printer_type = "laser_bw"
     order_id = uuid.uuid4().hex[:6].upper()
     order = {"id": order_id, "kind": source, "copies": copies, "color_mode": color_mode,
              "printer_type": printer_type,
@@ -880,7 +823,7 @@ def create_pending_order():
         file.save(str(saved_path))
         total = _count_file_pages(saved_path)
         pages = payments.count_selected_pages(order["page_ranges"], total)
-        per_page = PRICE_PER_PAGE_COLOR if color_mode == "color" else PRICE_PER_PAGE_BW
+        per_page = PRICE_PER_PAGE_BW
         order.update(filename=clean_name, saved_path=str(saved_path), pages=pages,
                      total_pages=total, amount=pages * copies * per_page)
 
@@ -1493,7 +1436,7 @@ def _normalize_template_file(path: Path) -> Path:
 def admin_upload_template():
     """
     Admin: yangi shablon yuklash. Format ixtiyoriy (PDF, DOCX, DOC, ODT, RTF, TXT, XLSX, PPTX, rasm…).
-    Multipart/form-data: file, name, description, category, price_per_page, color (ixtiyoriy)
+    Multipart/form-data: file, name, description, category, price_per_page (ixtiyoriy)
     """
     if not payments.is_admin(request):
         return jsonify({"success": False, "message": "Admin token noto'g'ri yoki sozlanmagan"}), 401
@@ -1506,9 +1449,8 @@ def admin_upload_template():
     name        = (request.form.get("name") or f.filename.rsplit(".", 1)[0]).strip()[:80]
     description = request.form.get("description", "").strip()[:200]
     category    = request.form.get("category", "other").strip()[:30] or "other"
-    color       = request.form.get("color", "false").lower() == "true"
     try:
-        price   = max(0, int(request.form.get("price_per_page", 1500 if color else 500)))
+        price   = max(0, int(request.form.get("price_per_page", 500)))
     except ValueError:
         price   = 500
 
@@ -1544,7 +1486,6 @@ def admin_upload_template():
         "pages":          pages,
         "file":           save_path.name,
         "price_per_page": price,
-        "color":          color,
         "tags":           [category, name.lower()],
         "uploaded":       True,
         "created_at":     time.time(),
@@ -1597,7 +1538,6 @@ def print_template():
     data        = request.get_json() or {}
     template_id = data.get("template_id", "")
     copies      = max(1, min(int(data.get("copies", 1)), MAX_COPIES))
-    color_mode  = data.get("color_mode", "gray")
 
     # Shablon topish
     templates = _load_templates()
@@ -1614,7 +1554,7 @@ def print_template():
         }), 404
 
     # Smart Router orqali printer tanlash
-    routing = get_printer_for_job(color_mode=color_mode, job_type="document")
+    routing = get_printer_for_job()
     if not routing.get("found"):
         return jsonify({"success": False, "message": routing.get("reason")}), 503
 
@@ -1626,16 +1566,8 @@ def print_template():
     amount         = data.get("amount", str(total_price))
     logger.info(f"Shablon chop etish: {template['name']} x{copies} → [{printer}] | {amount} so'm")
 
-    # ── Termal printer (XP-58) to'g'ridan-to'g'ri chop etish ──
-    if routing.get("type") == "thermal":
-        try:
-            printer_service.print_to_thermal(file_path, copies=copies)
-            msg = f"Shablon [{template['name']}] termal printerda muvaffaqiyatli chop etildi!"
-        except Exception as e:
-            logger.error(f"Termal shablon chop etish xatosi: {e}")
-            return jsonify({"success": False, "message": f"Termal printer xatosi: {str(e)}"}), 500
-    # CUPS orqali chop etish (Lazer / Rangli)
-    elif shutil.which("lp"):
+    # CUPS orqali chop etish (Canon LBP)
+    if shutil.which("lp"):
         try:
             ready_file = prepare_printable_file(file_path)  # DOCX → PDF (LibreOffice)
         except Exception as e:
@@ -1697,7 +1629,7 @@ def dev_test_print():
                else "Serverda ADMIN_TOKEN o'rnatilmagan — sinov o'chiq")
         return jsonify({"success": False, "message": msg}), 401
     data = request.get_json(silent=True) or {}
-    target = data.get("target", "thermal")  # "thermal" (XP-58) yoki "laser_bw" (Canon)
+    target = "laser_bw"  # yagona printer: Canon LBP3010
     order_id = uuid.uuid4().hex[:6].upper()
 
     # Dasturchi test buyurtmasi
@@ -1707,7 +1639,7 @@ def dev_test_print():
     order = {
         "id": order_id,
         "kind": "dev_test",
-        "filename": f"Sinov_{target}.receipt" if target == "thermal" else "Sinov_Canon.pdf",
+        "filename": "Sinov_Canon.txt",
         "saved_path": str(test_file),
         "ready_file": str(test_file),
         "copies": 1,

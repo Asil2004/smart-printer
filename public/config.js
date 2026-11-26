@@ -11,6 +11,9 @@ const AppConfig = {
   // Render.com doimiy tezkor bulutli server URL
   DEFAULT_API_URL: "https://smart-printer-mo1g.onrender.com",
 
+  // Yagona printer: Canon LBP3010 (A4, oq-qora). To'lov: faqat kartaga o'tkazma.
+  PAY_METHODS: ["card"],     // "qr", "click", "payme", "card" — saytda shu tartibda ko'rsatiladi
+
   // To'lov tizimi sozlamalari
   PAYMENT: {
     enabled: true,
