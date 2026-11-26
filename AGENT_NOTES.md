@@ -11,6 +11,10 @@ Bir faylni ikki agent bir vaqtda tahrirlamasin — "Hozir kim nima ustida" jadva
 | Antigravity  | `prezentatsiya.html`, `Smart_Printchi_Prezentatsiya.pptx` | Davom etmoqda (Claude tegmaydi) |
 | Claude       | `public/index.html`, `public/styles.css` (yangi), `public/app.js`, `public/config.js`, `templates/index.html`, `app.py`, `payments.py`, `start_demo.bat` (yangi), `DESIGN.md` (yangi) | Tugadi — 2026-11-15 |
 
+> **2026-11-26, Claude:** `pi_agent.py`, `app.py` (agent API, zaxira, test_print), `public/panel.html` (yangi),
+> `printchi-agent.service` (yangi) o'zgardi — tafsilot `HISOBOT.md` da. Promokod `feat/control-panel` branchida
+> (`app.py`, `public/app.js`, `public/index.html`, `public/styles.css`). Antigravity: shu fayllarni o'zgartirishdan oldin o'qing.
+
 > Antigravity: `public/app.js` dagi to'lov oynasi mantig'i o'zgardi (pastga qarang).
 > AI Writer olib tashlandi (pastda). HTML'dagi "To'lov Qildim — Chop Etilsin!" tugma matnini "To'lov qildim" ga o'zgartirish tavsiya etiladi.
 
