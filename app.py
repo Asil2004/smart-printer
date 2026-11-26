@@ -28,6 +28,7 @@ from printer_service import PrinterService
 import config  # TELEGRAM_* va boshqa sozlamalar
 import payments  # buyurtma, to'lov tasdig'i, admin token
 import cups_jobs  # CUPS ish holatini kuzatish (IPP)
+import multicard  # Rahmat Pro / Multicard to'lov shlyuzi
 printer_service = PrinterService()
 
 # CORS moduli (Netlify saytidan so'rovlarni qabul qilish uchun)
@@ -304,6 +305,7 @@ def health_check():
         "price_color": PRICE_PER_PAGE_COLOR,
         "payment_verification": payments.REQUIRE_PAYMENT,
         "confirm_via": "telegram" if payments.telegram_enabled() else "admin",
+        "rahmat_pay": multicard.enabled(),   # Rahmat (Multicard) avtomatik to'lov yoqilganmi
         "timestamp": time.time()
     })
 
@@ -895,8 +897,9 @@ def claim_order_payment(order_id):
         payments.set_status(order, "CLAIMED", claimed_at=time.time(),
                             claimed_method=(request.get_json(silent=True) or {}).get("method", ""))
         payments.notify_claim(order)
-        if payments.DEMO_AUTO_CONFIRM or not payments.telegram_enabled():
-            # Agar Telegram sozlanmagan bo'lsa yoki test/demo rejimida bo'lsa: 1 soniyadan keyin avtomatik tasdiqlanadi va darhol chop etiladi!
+        if payments.DEMO_AUTO_CONFIRM or not payments.REQUIRE_PAYMENT:
+            # Faqat aniq yoqilgan demo rejimida (yoki to'lov tekshiruvi o'chirilganda) avtomatik tasdiqlanadi.
+            # Aks holda: Rahmat callback'i, Telegram tugmasi yoki Admin API tasdiqlaydi.
             threading.Timer(1.0, confirm_order, args=(order["id"], "AUTO_CONFIRM")).start()
     return jsonify({"success": True, "status": order["status"]})
 
@@ -907,10 +910,119 @@ def check_order_payment_status(order_id):
     order = payments.get_order(order_id)
     if not order:
         return jsonify({"success": False, "status": "NOT_FOUND"}), 404
+    _maybe_check_rahmat(order)
     return jsonify({"success": True, "order_id": order["id"], "status": order["status"],
                     "amount": order["amount"], "printer": order.get("printer", ""),
                     "note": order.get("note", "") if order["status"] == "PRINTING" else "",
                     "error": order.get("error", "") if order["status"] == "FAILED" else ""})
+
+
+# ── Rahmat Pro / Multicard (hosted checkout) ──────────────
+RAHMAT_PAYABLE = ("PENDING", "CLAIMED")
+_rahmat_checking = set()
+
+
+def _rahmat_callback_url() -> str:
+    return multicard.CALLBACK_URL or (request.host_url.rstrip("/") + "/api/payments/multicard/callback")
+
+
+def _rahmat_mark_paid(order: dict, uuid_: str, amount_tiyin, extra: dict):
+    """Imzosi tekshirilgan to'lovni buyurtmaga qo'llaydi. (ok, xabar)"""
+    try:
+        amount_tiyin = int(amount_tiyin)
+    except (TypeError, ValueError):
+        return False, "Summa noto'g'ri"
+    if amount_tiyin != int(order["amount"]) * 100:
+        logger.error(f"Rahmat #{order['id']}: summa mos emas ({amount_tiyin} tiyin, buyurtma {order['amount']} so'm)")
+        return False, "Summa buyurtmaga mos emas"
+    if order["status"] in ("PAID", "PRINTING", "PRINTED", "FAILED"):
+        return True, "Allaqachon to'langan"            # qayta kelgan callback — idempotent
+    if order["status"] not in ("PENDING", "CLAIMED", "EXPIRED"):
+        return False, f"Buyurtma yopilgan ({order['status']})"
+    payments.set_status(order, order["status"], mc_paid_uuid=uuid_, mc_payment=extra)
+    msg = confirm_order(order["id"], "RAHMAT")
+    logger.info(f"Rahmat to'lovi qabul qilindi: {msg}")
+    return True, msg
+
+
+def _maybe_check_rahmat(order: dict):
+    """Callback kelmay qolsa (Render uxlab qolgan va h.k.) — 10 s da bir marta invoys holatini so'raydi."""
+    if not (multicard.enabled() and order.get("mc_uuid") and order["status"] in RAHMAT_PAYABLE + ("EXPIRED",)):
+        return
+    if time.time() - order.get("mc_checked_at", 0) < 10 or order["id"] in _rahmat_checking:
+        return
+    order["mc_checked_at"] = time.time()
+    _rahmat_checking.add(order["id"])
+
+    def worker():
+        try:
+            inv = multicard.get_invoice(order["mc_uuid"])
+            if multicard.invoice_paid(inv):
+                _rahmat_mark_paid(order, inv.get("uuid", order["mc_uuid"]), inv.get("amount", 0),
+                                  {"via": "status_check", "payment": inv.get("payment")})
+        except Exception as e:
+            logger.warning(f"Rahmat holatini tekshirib bo'lmadi #{order['id']}: {e}")
+        finally:
+            _rahmat_checking.discard(order["id"])
+    threading.Thread(target=worker, daemon=True).start()
+
+
+@app.route("/api/order/<order_id>/rahmat", methods=["POST"])
+def rahmat_create_invoice(order_id):
+    """Buyurtma uchun Rahmat (Multicard) to'lov sahifasini yaratadi va checkout_url qaytaradi."""
+    if not multicard.enabled():
+        return jsonify({"success": False, "message": "Rahmat to'lovi sozlanmagan"}), 400
+    order = payments.get_order(order_id)
+    if not order:
+        return jsonify({"success": False, "status": "NOT_FOUND"}), 404
+    if order["status"] not in RAHMAT_PAYABLE:
+        return jsonify({"success": False, "status": order["status"],
+                        "message": "Bu buyurtmani to'lab bo'lmaydi"}), 409
+    if order.get("mc_checkout_url"):
+        return jsonify({"success": True, "checkout_url": order["mc_checkout_url"],
+                        "short_link": order.get("mc_short_link", ""), "amount": order["amount"]})
+    ttl = max(300, int(payments.PENDING_TTL_SECONDS - (time.time() - order.get("created_at", time.time()))))
+    try:
+        inv = multicard.create_invoice(order["id"], order["amount"], _rahmat_callback_url(), ttl_seconds=ttl)
+    except Exception as e:
+        logger.error(f"Rahmat invoys yaratilmadi #{order['id']}: {e}")
+        return jsonify({"success": False, "message": "Rahmat to'lov sahifasini ochib bo'lmadi. Boshqa usulni tanlang."}), 502
+    payments.set_status(order, order["status"], mc_uuid=inv["uuid"], mc_checkout_url=inv["checkout_url"],
+                        mc_short_link=inv.get("short_link") or "", mc_deeplink=inv.get("deeplink") or "")
+    logger.info(f"Rahmat invoys #{order['id']} -> {inv['uuid']}")
+    return jsonify({"success": True, "checkout_url": inv["checkout_url"],
+                    "short_link": inv.get("short_link") or "", "amount": order["amount"]})
+
+
+@app.route("/api/payments/multicard/callback", methods=["POST"])
+def rahmat_callback():
+    """
+    Multicard callback'i. Javob HTTP 200 + {"success": true} bo'lishi kerak;
+    success=false qaytarilsa Multicard to'lovni bekor qilib, pulni mijozga qaytaradi.
+    """
+    body = request.get_json(silent=True) or request.form.to_dict() or {}
+    remote_ip = (request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0]).strip()
+    if not multicard.ip_allowed(remote_ip):
+        logger.warning(f"Rahmat callback begona IP dan: {remote_ip}")
+        return jsonify({"success": False, "message": "Forbidden"}), 403
+    if not multicard.sign_ok(body):
+        logger.warning(f"Rahmat callback: imzo noto'g'ri (invoice_id={body.get('invoice_id')})")
+        return jsonify({"success": False, "message": "Imzo noto'g'ri"}), 400
+
+    status = str(body.get("status") or "success").lower()   # success-callback'da status maydoni yo'q
+    order = payments.get_order(str(body.get("invoice_id", "")))
+    if status != "success":
+        # Webhook: draft/progress/error/revert/hold — faqat qayd qilamiz
+        if order:
+            payments.set_status(order, order["status"], mc_last_event=status)
+            if status == "revert" and order["status"] in ("PAID", "PRINTING", "PRINTED"):
+                payments.tg_send(f"↩️ <b>#{order['id']}</b> Rahmat to'lovi qaytarildi (revert)")
+        return jsonify({"success": True})
+    if not order:
+        return jsonify({"success": False, "message": "Buyurtma topilmadi"})
+    ok, msg = _rahmat_mark_paid(order, str(body.get("uuid", "")), body.get("amount", 0),
+                                {k: body.get(k) for k in ("uuid", "billing_id", "payment_time", "ps", "card_pan", "receipt_url")})
+    return jsonify({"success": ok, "message": msg})
 
 
 @app.route("/api/admin/orders/<order_id>/<action>", methods=["POST"])
@@ -1118,6 +1230,10 @@ def start_background_workers():
         return
     _workers_started = True
     payments.load_state()
+    if multicard.enabled():
+        logger.info("Rahmat (Multicard) to'lovi yoqilgan: to'lovlar callback orqali avtomatik tasdiqlanadi")
+    elif any((multicard.APPLICATION_ID, multicard.SECRET, multicard.STORE_ID)):
+        logger.error(f"Rahmat to'lovi to'liq sozlanmagan, yetishmaydi: {', '.join(multicard.missing_settings())}")
     if payments.DEMO_AUTO_CONFIRM:
         logger.warning("DEMO_AUTO_CONFIRM=1: to'lovlar AVTOMATIK tasdiqlanadi — faqat lokal demo uchun!")
     _resume_interrupted_orders()

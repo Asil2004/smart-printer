@@ -9,10 +9,29 @@ Bir faylni ikki agent bir vaqtda tahrirlamasin — "Hozir kim nima ustida" jadva
 | Agent        | Fayl(lar)                                  | Holat        |
 |--------------|--------------------------------------------|--------------|
 | Antigravity  | `prezentatsiya.html`, `Smart_Printchi_Prezentatsiya.pptx` | Davom etmoqda (Claude tegmaydi) |
-| Claude       | `public/index.html`, `public/styles.css` (yangi), `public/app.js`, `public/config.js`, `templates/index.html`, `app.py`, `payments.py`, `start_demo.bat` (yangi), `DESIGN.md` (yangi) | Tugadi — 2026-11-15 |
+| Claude       | `multicard.py` (yangi), `app.py`, `payments.py`, `public/app.js`, `public/index.html`, `render.yaml`, `Dockerfile`, `.env.example` | Tugadi — 2026-11-26 (branch `feat/rahmat-pay`, PR) |
 
 > Antigravity: `public/app.js` dagi to'lov oynasi mantig'i o'zgardi (pastga qarang).
 > AI Writer olib tashlandi (pastda). HTML'dagi "To'lov Qildim — Chop Etilsin!" tugma matnini "To'lov qildim" ga o'zgartirish tavsiya etiladi.
+
+---
+
+## Claude — 2026-11-26: Rahmat Pro (Multicard) to'lovi — avtomatik tasdiq
+Rahmat — Multicard Payment AJ mahsuloti; API: https://docs.multicard.uz (hosted checkout).
+- `multicard.py` (yangi): token (24 soat kesh), `POST /payment/invoice` (summa **tiyinda**, `ofd` majburiy),
+  `GET /payment/invoice/{uuid}`, callback `sign` tekshiruvi (`md5(store_id+invoice_id+amount+secret)` va
+  webhook `md5(uuid+amount+secret)`), ixtiyoriy IP cheklovi.
+- `app.py`: `POST /api/order/<id>/rahmat` → invoys + `checkout_url`; `POST /api/payments/multicard/callback`
+  → imzo + summa tekshiriladi → `confirm_order(..., "RAHMAT")`. Noto'g'ri summa/yopiq buyurtma → `success:false`
+  (Multicard pulni qaytaradi). Qayta callback idempotent. Callback kelmasa `/api/order/status` 10 s da bir marta
+  invoys holatini so'raydi. `/api/health` → `rahmat_pay`.
+- Frontend: to'lov oynasida "Rahmat" usuli (faqat `rahmat_pay` true bo'lsa, standart tanlov), QR + havola,
+  "To'lov qildim" yashiriladi — chop etish callback'dan keyin o'zi boshlanadi.
+- Xavfsizlik: `DEMO_AUTO_CONFIRM` standarti o'chiq; "To'lov qildim" endi faqat demo yoki
+  `REQUIRE_PAYMENT_VERIFICATION=0` da o'zi tasdiqlanadi. `render.yaml`/`Dockerfile`: bulutda demo o'chiq.
+- Statik Rahmat QR (`l.rhmt.uz/...`) summasiz va buyurtma raqamisiz — uni buyurtmaga bog'lab bo'lmaydi,
+  shuning uchun har buyurtmaga alohida invoys yaratiladi.
+- Sinov: Multicard API soxtalashtirilgan 14 ta test ✅. Haqiqiy Multicard (dev-mesh) bilan sinalmagan.
 
 ---
 

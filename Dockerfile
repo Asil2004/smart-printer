@@ -26,7 +26,7 @@ EXPOSE 5000
 
 ENV PYTHONUNBUFFERED=1
 ENV IS_CLOUD_SERVER=1
-ENV DEMO_AUTO_CONFIRM=1
+# DEMO_AUTO_CONFIRM bulutda yoqilmaydi: to'lov Rahmat callback/Telegram/Admin orqali tasdiqlanadi
 
 # Gunicorn bilan yuqori tezlikda ishga tushirish (1 worker, 8 threads — barcha oqimlar bir xil xotirani ko'radi)
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "120", "app:app"]

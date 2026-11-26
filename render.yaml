@@ -8,6 +8,28 @@ services:
       - key: IS_CLOUD_SERVER
         value: "1"
       - key: DEMO_AUTO_CONFIRM
-        value: "1"
-      - key: REQUIRE_PAYMENT_VERIFICATION
         value: "0"
+      - key: REQUIRE_PAYMENT_VERIFICATION
+        value: "1"
+      # Maxfiy qiymatlar Render paneli → Environment da qo'lda kiritiladi (git'ga yozilmaydi)
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: AGENT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      # Rahmat Pro / Multicard (multicard.py)
+      - key: MULTICARD_APPLICATION_ID
+        sync: false
+      - key: MULTICARD_SECRET
+        sync: false
+      - key: MULTICARD_STORE_ID
+        sync: false
+      - key: MULTICARD_OFD_MXIK
+        sync: false
+      - key: MULTICARD_OFD_PACKAGE_CODE
+        sync: false
+      - key: MULTICARD_CALLBACK_URL
+        value: "https://smart-printer-mo1g.onrender.com/api/payments/multicard/callback"

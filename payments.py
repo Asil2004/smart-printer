@@ -49,7 +49,7 @@ CLICK_SECRET_KEY   = os.environ.get("CLICK_SECRET_KEY", "").strip()
 PAYME_KEY          = os.environ.get("PAYME_KEY", "").strip()
 # Avtomatik tasdiqlash: agar Telegram bot sozlanmagan bo'lsa yoki test rejimida bo'lsa,
 # "To'lov qildim" bosilishi bilan avtomatik tasdiqlanadi va darhol chop etiladi!
-DEMO_AUTO_CONFIRM  = _env_bool("DEMO_AUTO_CONFIRM", True)
+DEMO_AUTO_CONFIRM  = _env_bool("DEMO_AUTO_CONFIRM", False)  # faqat lokal demo (start_demo.bat)
 
 PENDING_TTL_SECONDS = 30 * 60        # to'lanmagan buyurtma 30 daqiqada eskiradi
 CLAIMED_TTL_SECONDS = 3 * 60 * 60    # "To'ladim" degan buyurtma 3 soat kutadi

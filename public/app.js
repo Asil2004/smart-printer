@@ -478,6 +478,8 @@
         S.priceBw = data.price_bw || S.priceBw;
         S.priceColor = data.price_color || S.priceColor;
         if (data.max_copies) { MAX_COPIES = data.max_copies; renderSettings(); }
+        S.rahmatPay = !!data.rahmat_pay;
+        $('methodRahmat').hidden = !S.rahmatPay;
       }
     } catch (e) { /* ixtiyoriy */ }
   }
@@ -561,6 +563,25 @@
     if (!o) { panel.innerHTML = '<span class="typing" aria-label="Kutilmoqda"><span></span><span></span><span></span></span>'; return; }
     const p = payTargets(o.amount, o.id);
     const cardBlock = `<p class="card-no">${esc(p.cardPretty || 'Karta kiritilmagan')}</p><p class="holder">${esc(p.holder)}${p.bank ? ' · ' + esc(p.bank) : ''}</p>`;
+    // Rahmat: to'lov callback orqali avtomatik tasdiqlanadi — "To'lov qildim" kerak emas
+    $('payClaim').hidden = S.payMethod === 'rahmat';
+    if (S.payMethod === 'rahmat') {
+      if (o.rahmatError) {
+        panel.innerHTML = `<p class="hint">${esc(o.rahmatError)}</p><button class="btn-ghost" type="button" id="rahmatRetry">Qayta urinish</button>`;
+        $('rahmatRetry').addEventListener('click', () => { o.rahmatError = ''; renderPayPanel(); });
+        return;
+      }
+      if (!o.checkoutUrl) {
+        panel.innerHTML = '<span class="typing" aria-label="Rahmat to‘lov sahifasi tayyorlanmoqda"><span></span><span></span><span></span></span>';
+        ensureRahmatInvoice(o);
+        return;
+      }
+      const qrUrl = o.shortLink || o.checkoutUrl;
+      panel.innerHTML = `<img alt="Rahmat to‘lov QR-kodi: ${esc(money(o.amount))}" src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(qrUrl)}">
+        <a class="pay-link" href="${esc(o.checkoutUrl)}" target="_blank" rel="noopener">Rahmat orqali ${esc(money(o.amount))} to‘lash</a>
+        <p class="hint">Telefon kamerasi bilan skanerlang: Uzcard, Humo, Click, Payme yoki Rahmat. To‘lovdan so‘ng hujjat <b>o‘zi chiqadi</b>.</p>`;
+      return;
+    }
     if (S.payMethod === 'qr') {
       panel.innerHTML = `<img alt="To‘lov QR-kodi: ${esc(money(o.amount))}" src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(p.qrData)}">
         <p class="hint">Click yoki Payme ilovasida QR-kodni skanerlang va <b>${esc(money(o.amount))}</b> o‘tkazing.</p>`;
@@ -579,6 +600,26 @@
     }
   }
 
+  async function ensureRahmatInvoice(o) {
+    if (o.rahmatLoading) return;
+    o.rahmatLoading = true;
+    try {
+      const { data } = await getJSON(`/api/order/${o.id}/rahmat`, { method: 'POST' });
+      if (S.order !== o) return;   // oyna yopilgan
+      if (data && data.success && data.checkout_url) {
+        o.checkoutUrl = data.checkout_url;
+        o.shortLink = data.short_link || '';
+      } else {
+        o.rahmatError = (data && data.message) || 'Rahmat to‘lov sahifasini ochib bo‘lmadi. Boshqa usulni tanlang.';
+      }
+    } catch (e) {
+      o.rahmatError = 'Server bilan aloqa yo‘q. Qayta urinib ko‘ring.';
+    } finally {
+      o.rahmatLoading = false;
+    }
+    if (S.order === o && S.payMethod === 'rahmat') renderPayPanel();
+  }
+
   function setPayStatus(kind, text) {
     const el = $('payStatus');
     el.className = 'pay-status' + (kind ? ' ' + kind : '');
@@ -587,7 +628,7 @@
 
   async function openPay(src) {
     if (S.order) return;
-    S.payMethod = 'qr';
+    S.payMethod = S.rahmatPay ? 'rahmat' : 'qr';
     S.lastStatus = '';
     $('payOverlay').hidden = false;
     $('orderCode').textContent = '#······';
