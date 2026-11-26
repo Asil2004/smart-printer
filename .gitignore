@@ -25,3 +25,6 @@ Thumbs.db
 
 # Buyurtmalar holati (server yaratadi)
 data/
+
+# Shablon rasmlari (server o'zi yaratadi)
+templates_files/previews/

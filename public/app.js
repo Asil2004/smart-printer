@@ -508,7 +508,7 @@
     }
     grid.innerHTML = list.map((t) => `
       <button class="tpl" type="button" data-tpl="${esc(t.id)}">
-        <span class="ico" style="color:#1B1F23">${docIcon}</span>
+        ${previewSrc(t) ? `<span class="tpl-thumb"><img src="${esc(previewSrc(t))}" alt="" loading="lazy"></span>` : `<span class="ico" style="color:#1B1F23">${docIcon}</span>`}
         <b>${esc(t.name)}</b>
         <span class="desc">${esc(t.description || '')}</span>
         <span class="price">${t.pages || 1} bet · ${money(tplPrice(t))}</span>
@@ -805,49 +805,140 @@
     update({ file: null, template: null, fileExt: '', pages: 0, copies: 1, rangeMode: 'all', rangeText: '', userMsg: '', color: 'gray' }, '');
   }
 
-  // ── Admin ───────────────────────────────────────────────
+  // ── Admin (logo bosilganda) ─────────────────────────────
   const adminToken = () => { try { return localStorage.getItem('PRINTCHI_ADMIN_TOKEN') || ''; } catch (e) { return ''; } };
+  const setAdminToken = (v) => { try { if (v) localStorage.setItem('PRINTCHI_ADMIN_TOKEN', v); else localStorage.removeItem('PRINTCHI_ADMIN_TOKEN'); } catch (e) { /* */ } };
+  const adminHdr = () => ({ 'X-Admin-Token': adminToken() });
+  const previewSrc = (t) => (t.preview ? api(t.preview) : '');
+  let adminTab = 'templates';
 
   function openAdmin() {
-    $('adminToken').value = adminToken();
     $('adminOverlay').hidden = false;
+    $('adminToken').value = '';
+    if (adminToken()) unlockAdmin(); else showAdminLock();
+  }
+
+  function showAdminLock() {
+    $('adminTokenForm').hidden = false;
+    $('adminBody').hidden = true;
+    $('adminLogout').hidden = true;
+    setTimeout(() => $('adminToken').focus(), 60);
+  }
+
+  async function unlockAdmin(fromForm = false) {
+    const { status, data } = await getJSON('/api/admin/promos', { headers: adminHdr() }).catch(() => ({ status: 0, data: {} }));
+    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (!data.success) { showAdminLock(); toast('Server bilan aloqa yo‘q. Birozdan so‘ng urinib ko‘ring.', 'err'); return; }
+    $('adminTokenForm').hidden = true;
+    $('adminBody').hidden = false;
+    $('adminLogout').hidden = false;
+    S.promos = data.promos || [];
     renderAdminList();
+    renderPromos();
+    setAdminTab(adminTab);
+    if (fromForm) toast('Admin panelga kirdingiz');
+  }
+
+  function setAdminTab(tab) {
+    adminTab = tab;
+    document.querySelectorAll('[data-admin-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.adminTab === tab)));
+    $('adminTemplates').hidden = tab !== 'templates';
+    $('adminPromos').hidden = tab !== 'promos';
   }
 
   function renderAdminList() {
+    if ($('adminBody').hidden) return;
     $('adminList').innerHTML = S.templates.map((t) => `
-      <div class="admin-item"><div><b>${esc(t.name)}</b><span>${t.pages || 1} bet · ${money(tplPrice(t))}</span></div>
-      <button type="button" data-del="${esc(t.id)}">O‘chirish</button></div>`).join('') || '<p class="empty">Shablon yo‘q</p>';
+      <figure class="admin-tpl">
+        <span class="thumb">${previewSrc(t) ? `<img src="${esc(previewSrc(t))}" alt="" loading="lazy">` : docIcon}</span>
+        <figcaption><b>${esc(t.name)}</b><span>${t.pages || 1} bet · ${money(tplPrice(t))}</span></figcaption>
+        <button type="button" data-del="${esc(t.id)}" aria-label="${esc(t.name)} shablonini o‘chirish">O‘chirish</button>
+      </figure>`).join('') || '<p class="empty">Hali shablon yo‘q</p>';
   }
 
   async function adminUpload(e) {
     e.preventDefault();
-    const token = adminToken();
-    if (!token) { toast('Avval admin parolini kiriting', 'err'); return; }
+    const btn = $('adminUploadBtn');
     const fd = new FormData(e.target);
     fd.append('category', 'other');
-    const { status, data } = await getJSON('/api/admin/templates/upload', { method: 'POST', body: fd, headers: { 'X-Admin-Token': token } }).catch(() => ({ data: {} }));
-    if (status === 401) { toast('Admin paroli noto‘g‘ri', 'err'); return; }
-    if (!data.success) { toast(data.message || 'Yuklab bo‘lmadi', 'err'); return; }
-    toast('Shablon qo‘shildi');
-    e.target.reset();
-    await loadTemplates();
-    renderAdminList();
+    btn.disabled = true;
+    btn.textContent = 'Yuklanmoqda… rasm tayyorlanmoqda';
+    try {
+      const { status, data } = await getJSON('/api/admin/templates/upload', { method: 'POST', body: fd, headers: adminHdr() }).catch(() => ({ data: {} }));
+      if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
+      if (!data.success) { toast(data.message || 'Yuklab bo‘lmadi', 'err'); return; }
+      toast(`“${data.template.name}” qo‘shildi (${data.template.pages} bet)`);
+      e.target.reset();
+      await loadTemplates();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Shablonni yuklash';
+    }
   }
 
   async function adminDelete(id) {
     const t = S.templates.find((x) => x.id === id);
-    if (!t || !confirmDelete(t.name)) return;
-    const { status, data } = await getJSON(`/api/admin/templates/delete/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'X-Admin-Token': adminToken() } }).catch(() => ({ data: {} }));
-    if (status === 401) { toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (!t || !window.confirm(`«${t.name}» shablonini o‘chirasizmi?`)) return;
+    const { status, data } = await getJSON(`/api/admin/templates/delete/${encodeURIComponent(id)}`, { method: 'DELETE', headers: adminHdr() }).catch(() => ({ data: {} }));
+    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
     if (!data.success) { toast(data.message || 'O‘chirib bo‘lmadi', 'err'); return; }
     toast('O‘chirildi');
     await loadTemplates();
-    renderAdminList();
   }
 
-  // window.confirm bloklovchi oyna — admin uchun yetarli, mijoz oqimida ishlatilmaydi
-  function confirmDelete(name) { return window.confirm(`«${name}» shablonini o‘chirasizmi?`); }
+  function promoLine(p) {
+    const bits = [`−${p.percent}%`, `${p.used}/${p.max_uses || '∞'} ishlatildi`];
+    if (p.expires_at) bits.push(p.expired ? 'muddati tugagan' : `${new Date(p.expires_at * 1000).toLocaleDateString('uz-UZ')} gacha`);
+    if (p.note) bits.push(p.note);
+    return bits.join(' · ');
+  }
+
+  function renderPromos() {
+    const list = S.promos || [];
+    $('promoList').innerHTML = list.map((p) => {
+      const off = p.expired || (p.max_uses && p.used >= p.max_uses);
+      return `
+      <div class="admin-item promo-item${off ? ' off' : ''}">
+        <div><b class="mono">${esc(p.code)}</b><span>${esc(promoLine(p))}</span></div>
+        <button type="button" class="btn-copy" data-copy="${esc(p.code)}">Nusxa</button>
+        ${p.source === 'env'
+          ? '<span class="promo-env" title="Render → Environment → PROMO_CODES">server</span>'
+          : `<button type="button" data-pdel="${esc(p.code)}" aria-label="${esc(p.code)} promokodini o‘chirish">O‘chirish</button>`}
+      </div>`;
+    }).join('') || '<p class="empty">Hali promokod yo‘q</p>';
+  }
+
+  async function reloadPromos() {
+    const { data } = await getJSON('/api/admin/promos', { headers: adminHdr() }).catch(() => ({ data: {} }));
+    if (data.success) { S.promos = data.promos || []; renderPromos(); }
+  }
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { return false; }
+  }
+
+  async function createPromo(e) {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const body = { code: f.get('code'), percent: +f.get('percent'), max_uses: +f.get('max_uses') || 0, days: +f.get('days') || 0, note: f.get('note') };
+    const { status, data } = await getJSON('/api/admin/promos', {
+      method: 'POST', body: JSON.stringify(body), headers: { ...adminHdr(), 'Content-Type': 'application/json' },
+    }).catch(() => ({ data: {} }));
+    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (!data.success) { toast(data.message || 'Yaratib bo‘lmadi', 'err'); return; }
+    const copied = await copyText(data.promo.code);
+    toast(`Promokod ${data.promo.code} yaratildi${copied ? ' va nusxalandi' : ''}`);
+    e.target.reset();
+    await reloadPromos();
+  }
+
+  async function deletePromo(code) {
+    if (!window.confirm(`${code} promokodini o‘chirasizmi?`)) return;
+    const { data } = await getJSON(`/api/admin/promos/${encodeURIComponent(code)}`, { method: 'DELETE', headers: adminHdr() }).catch(() => ({ data: {} }));
+    if (!data.success) { toast(data.message || 'O‘chirib bo‘lmadi', 'err'); return; }
+    toast('Promokod o‘chirildi');
+    await reloadPromos();
+  }
 
   // ── Hodisalar ───────────────────────────────────────────
   function bind() {
@@ -856,15 +947,7 @@
       render();
       if (S.view === 'templates') $('tplSearch').focus();
     });
-    let taps = 0, tapTimer = null;
-    $('brandBtn').addEventListener('click', () => {
-      S.view = 'print';
-      render();
-      taps += 1;                                   // 5 marta bosish — admin
-      clearTimeout(tapTimer);
-      tapTimer = setTimeout(() => { taps = 0; }, 1500);
-      if (taps >= 5) { taps = 0; openAdmin(); }
-    });
+    $('brandBtn').addEventListener('click', openAdmin);        // logo — admin panel
 
     $('dropZone').addEventListener('click', () => $('fileInput').click());
     $('attachBtn').addEventListener('click', () => $('fileInput').click());
@@ -922,11 +1005,20 @@
     $('adminClose').addEventListener('click', () => { $('adminOverlay').hidden = true; });
     $('adminTokenForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      try { localStorage.setItem('PRINTCHI_ADMIN_TOKEN', $('adminToken').value.trim()); } catch (er) { /* */ }
-      toast('Admin paroli saqlandi');
+      setAdminToken($('adminToken').value.trim());
+      unlockAdmin(true);
     });
+    $('adminLogout').addEventListener('click', () => { setAdminToken(''); showAdminLock(); });
+    document.querySelectorAll('[data-admin-tab]').forEach((b) => b.addEventListener('click', () => setAdminTab(b.dataset.adminTab)));
     $('adminUpload').addEventListener('submit', adminUpload);
     $('adminList').addEventListener('click', (e) => { const b = e.target.closest('[data-del]'); if (b) adminDelete(b.dataset.del); });
+    $('promoCreate').addEventListener('submit', createPromo);
+    $('promoList').addEventListener('click', async (e) => {
+      const c = e.target.closest('[data-copy]');
+      if (c) { toast((await copyText(c.dataset.copy)) ? `${c.dataset.copy} nusxalandi` : c.dataset.copy); return; }
+      const d = e.target.closest('[data-pdel]');
+      if (d) deletePromo(d.dataset.pdel);
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;

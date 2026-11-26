@@ -28,6 +28,7 @@ from printer_service import PrinterService
 import config  # TELEGRAM_* va boshqa sozlamalar
 import payments  # buyurtma, to'lov tasdig'i, admin token
 import cups_jobs  # CUPS ish holatini kuzatish (IPP)
+import catalog  # shablon rasmlari va promokodlar ombori
 printer_service = PrinterService()
 
 # CORS moduli (Netlify saytidan so'rovlarni qabul qilish uchun)
@@ -1003,6 +1004,7 @@ PROMO_FAIL_LIMIT = 10            # 10 daqiqada shuncha noto'g'ri urinish
 
 
 def _promo_codes() -> dict:
+    """Admin paneldan yaratilgan kodlar (data/promo_codes.json) + PROMO_CODES env (faqat o'qish)."""
     codes = {}
     for part in os.environ.get("PROMO_CODES", "").split(","):
         bits = [b.strip() for b in part.split(":")]
@@ -1014,8 +1016,15 @@ def _promo_codes() -> dict:
         except ValueError:
             logger.warning(f"PROMO_CODES dagi noto'g'ri qism o'tkazib yuborildi: {part!r}")
             continue
-        codes[bits[0].upper()] = {"percent": pct, "max_uses": limit}
+        codes[bits[0].upper()] = {"percent": pct, "max_uses": limit, "expires_at": 0, "source": "env"}
+    for code, item in catalog.load_promos().items():
+        codes.setdefault(code, {**item, "source": "admin"})
     return codes
+
+
+def _promo_used(code: str) -> int:
+    return sum(1 for o in list(payments.orders.values())
+               if o.get("promo_code") == code and o.get("status") not in ("EXPIRED", "CANCELLED", "REJECTED"))
 
 
 @app.route("/api/order/<order_id>/promo", methods=["POST"])
@@ -1041,10 +1050,10 @@ def apply_promo(order_id):
     if not promo:
         fails.append(now)
         return jsonify({"success": False, "message": "Promokod noto'g'ri"}), 400
+    if promo.get("expires_at") and time.time() > promo["expires_at"]:
+        return jsonify({"success": False, "message": "Bu promokodning muddati tugagan"}), 410
     if promo["max_uses"]:
-        used = sum(1 for o in list(payments.orders.values())
-                   if o.get("promo_code") == code and o.get("status") not in ("EXPIRED", "CANCELLED", "REJECTED"))
-        if used >= promo["max_uses"]:
+        if _promo_used(code) >= promo["max_uses"]:
             return jsonify({"success": False, "message": "Bu promokodning muddati tugagan"}), 410
 
     original = int(order.get("amount", 0))
@@ -1060,6 +1069,47 @@ def apply_promo(order_id):
         confirm_order(order["id"], f"PROMO:{code}")
     return jsonify({"success": True, "amount": amount, "amount_before": original,
                     "percent": promo["percent"], "free": free, "status": order["status"]})
+
+
+@app.route("/api/admin/promos", methods=["GET", "POST"])
+def admin_promos():
+    """Admin: promokodlar ro'yxati / yangi promokod."""
+    if not payments.is_admin(request):
+        return jsonify({"success": False, "message": "Admin token noto'g'ri yoki sozlanmagan"}), 401
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        try:
+            item = catalog.create_promo(code=body.get("code", ""), percent=int(body.get("percent", 100)),
+                                        max_uses=int(body.get("max_uses", 0) or 0),
+                                        days=int(body.get("days", 0) or 0), note=body.get("note", ""))
+        except ValueError as e:
+            msg = str(e) if "allaqachon" in str(e) else "Qiymatlar noto'g'ri"
+            return jsonify({"success": False, "message": msg}), 400
+        if item["code"] in {c for c, v in _promo_codes().items() if v.get("source") == "env"}:
+            catalog.delete_promo(item["code"])
+            return jsonify({"success": False, "message": "Bu kod server sozlamalarida (PROMO_CODES) bor"}), 400
+        logger.info(f"Admin: promokod yaratildi {item['code']} (-{item['percent']}%)")
+        return jsonify({"success": True, "promo": item})
+    now = time.time()
+    out = []
+    for code, p in _promo_codes().items():
+        out.append({"code": code, "percent": p["percent"], "max_uses": p["max_uses"],
+                    "used": _promo_used(code), "expires_at": p.get("expires_at", 0),
+                    "expired": bool(p.get("expires_at")) and now > p["expires_at"],
+                    "note": p.get("note", ""), "source": p.get("source", "admin"),
+                    "created_at": p.get("created_at", 0)})
+    out.sort(key=lambda x: -x["created_at"])
+    return jsonify({"success": True, "promos": out})
+
+
+@app.route("/api/admin/promos/<code>", methods=["DELETE"])
+def admin_delete_promo(code):
+    if not payments.is_admin(request):
+        return jsonify({"success": False, "message": "Admin token noto'g'ri yoki sozlanmagan"}), 401
+    if not catalog.delete_promo(code):
+        return jsonify({"success": False, "message": "Promokod topilmadi (PROMO_CODES dagilarni Render'da o'chiring)"}), 404
+    logger.info(f"Admin: promokod o'chirildi {code}")
+    return jsonify({"success": True})
 
 
 @app.route("/api/order/<order_id>/claim", methods=["POST"])
@@ -1328,6 +1378,8 @@ def _load_templates() -> list:
         for t in templates:
             fpath = TEMPLATES_DIR / t.get("file", "")
             t["file_exists"] = fpath.exists()
+            if t["file_exists"]:
+                t["preview"] = f"/api/templates/{t['id']}/preview.jpg?v={int(fpath.stat().st_mtime)}"
         return templates
     except Exception as e:
         logger.error(f"Shablonlarni yuklashda xatolik: {e}")
@@ -1351,72 +1403,133 @@ def _save_templates(templates: list):
         json.dump(templates, f, ensure_ascii=False, indent=2)
 
 
+TEMPLATE_PREVIEWS = TEMPLATES_DIR / "previews"
+TEMPLATE_KEEP_EXTS = {".pdf", ".docx", ".png", ".jpg", ".jpeg"}       # chop etish to'g'ridan-to'g'ri biladi
+TEMPLATE_MAX_BYTES = 25 * 1024 * 1024
+
+
+def _preview_path(template_id: str) -> Path:
+    return TEMPLATE_PREVIEWS / f"{secure_filename(template_id) or 'tpl'}.jpg"
+
+
+def _template_preview(t: dict) -> Path:
+    src = TEMPLATES_DIR / t["file"]
+    return catalog.ensure_preview(src, _preview_path(t["id"]), t.get("name", ""),
+                                  to_pdf=convert_docx_to_pdf if src.suffix.lower() != ".pdf" else None)
+
+
+def _warm_previews():
+    """Server yonganda barcha shablonlar rasmini oldindan tayyorlaydi (fonda)."""
+    for t in _load_templates():
+        if t.get("file_exists"):
+            try:
+                _template_preview(t)
+            except Exception as e:
+                logger.warning(f"Preview ({t.get('id')}): {e}")
+
+
+threading.Thread(target=_warm_previews, daemon=True, name="preview-warm").start()
+
+
+@app.route("/api/templates/<template_id>/preview.jpg", methods=["GET"])
+def template_preview(template_id):
+    t = next((x for x in _load_templates() if x["id"] == template_id and x.get("file_exists")), None)
+    if not t:
+        return jsonify({"success": False, "message": "Shablon topilmadi"}), 404
+    path = _template_preview(t)
+    resp = send_file(str(path), mimetype="image/jpeg", max_age=86400)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+def _normalize_template_file(path: Path) -> Path:
+    """Shablonni chop etiladigan formatga keltiradi: PDF/DOCX/PNG/JPG o'zicha qoladi,
+    boshqa rasmlar → PNG, boshqa hujjatlar (DOC, ODT, RTF, TXT, XLSX, PPTX…) → PDF (LibreOffice)."""
+    ext = path.suffix.lower()
+    if ext in TEMPLATE_KEEP_EXTS:
+        return path
+    if ext in catalog.IMAGE_EXTS:
+        out = path.with_suffix(".png")
+        with Image.open(path) as im:
+            im.seek(0)
+            im.convert("RGBA" if im.mode in ("RGBA", "LA", "P") else "RGB").save(out, "PNG")
+        path.unlink(missing_ok=True)
+        return out
+    pdf = convert_docx_to_pdf(path)          # LibreOffice istalgan ofis formatini oladi
+    path.unlink(missing_ok=True)
+    return pdf
+
+
 @app.route("/api/admin/templates/upload", methods=["POST"])
 def admin_upload_template():
     """
-    Admin: yangi shablon fayl yuklash.
-    Multipart/form-data:
-      - file: PDF yoki DOCX fayl
-      - name, description, category, price_per_page (ixtiyoriy)
+    Admin: yangi shablon yuklash. Format ixtiyoriy (PDF, DOCX, DOC, ODT, RTF, TXT, XLSX, PPTX, rasm…).
+    Multipart/form-data: file, name, description, category, price_per_page, color (ixtiyoriy)
     """
     if not payments.is_admin(request):
         return jsonify({"success": False, "message": "Admin token noto'g'ri yoki sozlanmagan"}), 401
-    if "file" not in request.files:
+    f = request.files.get("file")
+    if not f or not f.filename:
         return jsonify({"success": False, "message": "Fayl yuborilmadi"}), 400
+    if request.content_length and request.content_length > TEMPLATE_MAX_BYTES:
+        return jsonify({"success": False, "message": "Fayl 25 MB dan katta"}), 413
 
-    f        = request.files["file"]
-    ext      = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
-    if ext not in ("pdf", "docx"):
-        return jsonify({"success": False, "message": "Faqat PDF yoki DOCX qabul qilinadi"}), 400
-
-    name        = request.form.get("name", f.filename.rsplit(".", 1)[0]).strip()
-    description = request.form.get("description", "").strip()
-    category    = request.form.get("category", "other").strip()
+    name        = (request.form.get("name") or f.filename.rsplit(".", 1)[0]).strip()[:80]
+    description = request.form.get("description", "").strip()[:200]
+    category    = request.form.get("category", "other").strip()[:30] or "other"
     color       = request.form.get("color", "false").lower() == "true"
     try:
-        price   = int(request.form.get("price_per_page", 1500 if color else 500))
+        price   = max(0, int(request.form.get("price_per_page", 1500 if color else 500)))
     except ValueError:
         price   = 500
 
-    # Fayl nomini xavfsiz qilish
-    safe_name  = secure_filename(f.filename)
-    file_id    = str(uuid.uuid4())[:6]
-    filename   = f"{file_id}_{safe_name}"
+    file_id   = uuid.uuid4().hex[:6]
+    safe_name = secure_filename(f.filename) or "shablon"
+    if "." not in safe_name and "." in f.filename:
+        safe_name += "." + secure_filename(f.filename.rsplit(".", 1)[-1])
     TEMPLATES_DIR.mkdir(exist_ok=True)
-    save_path  = TEMPLATES_DIR / filename
+    save_path = TEMPLATES_DIR / f"{file_id}_{safe_name}"
     f.save(str(save_path))
 
-    # Sahifalar soni
-    pages = 1
-    if ext == "pdf":
-        try:
-            pages = get_pdf_page_count(save_path)
-        except Exception:
-            pass
+    try:
+        save_path = _normalize_template_file(save_path)
+        printable = prepare_printable_file(save_path)
+        pages = get_pdf_page_count(printable)
+    except Exception as e:
+        save_path.unlink(missing_ok=True)
+        logger.warning(f"Shablon yuklanmadi ({f.filename}): {e}")
+        msg = ("Bu formatni serverda PDF ga aylantirib bo'lmadi (LibreOffice yo'q). PDF yoki DOCX yuklang."
+               if "LibreOffice" in str(e) else f"Faylni o'qib bo'lmadi: {e}")
+        return jsonify({"success": False, "message": msg}), 400
 
-    # templates.json ga qo'shish
-    templates  = _load_templates()
-    # file_exists kalitini olib tashlaymiz (faqat runtime uchun)
+    templates = _load_templates()
     for t in templates:
         t.pop("file_exists", None)
-
+        t.pop("preview", None)
+    slug = secure_filename(name).lower().replace(" ", "_")[:40] or "shablon"
     new_entry = {
-        "id":             file_id + "_" + secure_filename(name).lower().replace(" ", "_"),
+        "id":             f"{file_id}_{slug}",
         "name":           name,
         "description":    description or f"{name} shabloni",
         "category":       category,
         "pages":          pages,
-        "preview":        "",
-        "file":           filename,
+        "file":           save_path.name,
         "price_per_page": price,
         "color":          color,
         "tags":           [category, name.lower()],
+        "uploaded":       True,
+        "created_at":     time.time(),
     }
     templates.append(new_entry)
     _save_templates(templates)
+    try:
+        _template_preview(new_entry)
+    except Exception as e:
+        logger.warning(f"Preview yaratilmadi: {e}")
 
-    logger.info(f"Yangi shablon qo'shildi: {name} ({filename})")
-    return jsonify({"success": True, "message": f"'{name}' shabloni qo'shildi!", "template": new_entry})
+    logger.info(f"Yangi shablon qo'shildi: {name} ({save_path.name}, {pages} bet)")
+    entry = next((t for t in _load_templates() if t["id"] == new_entry["id"]), new_entry)
+    return jsonify({"success": True, "message": f"'{name}' shabloni qo'shildi!", "template": entry})
 
 
 @app.route("/api/admin/templates/delete/<template_id>", methods=["DELETE"])
@@ -1427,6 +1540,7 @@ def admin_delete_template(template_id: str):
     templates = _load_templates()
     for t in templates:
         t.pop("file_exists", None)
+        t.pop("preview", None)
 
     target = next((t for t in templates if t["id"] == template_id), None)
     if not target:
@@ -1435,6 +1549,9 @@ def admin_delete_template(template_id: str):
     # Faylni o'chirish
     fpath = TEMPLATES_DIR / target["file"]
     fpath.unlink(missing_ok=True)
+    if fpath.suffix.lower() != ".pdf":
+        fpath.with_suffix(".pdf").unlink(missing_ok=True)      # konvertatsiya keshi
+    _preview_path(target["id"]).unlink(missing_ok=True)
 
     templates = [t for t in templates if t["id"] != template_id]
     _save_templates(templates)
@@ -1709,6 +1826,71 @@ def agent_restore():
         logger.warning(f"Zaxiradan {restored} ta buyurtma tiklandi (Pi agenti)")
         payments.tg_send(f"♻️ Server qayta ishga tushdi: Pi zaxirasidan <b>{restored}</b> ta buyurtma tiklandi")
     return jsonify({"success": True, "restored": restored, "boot_id": BOOT_ID})
+
+
+# ── Admin katalogi zaxirasi: Render diski vaqtinchalik, shuning uchun admin yuklagan shablonlar
+#    va yaratgan promokodlar ham Pi'ga nusxalanadi va server qayta yonsa qaytariladi. ──
+def _uploaded_templates() -> list:
+    out = []
+    for t in _load_templates():
+        if t.get("uploaded") and t.get("file_exists"):
+            item = {k: v for k, v in t.items() if k not in ("file_exists", "preview")}
+            out.append(item)
+    return out
+
+
+@app.route("/api/agent/catalog", methods=["GET"])
+def agent_catalog():
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    return jsonify({"success": True, "boot_id": BOOT_ID, "promos": catalog.load_promos(),
+                    "templates": _uploaded_templates()})
+
+
+@app.route("/api/agent/catalog/file/<template_id>", methods=["GET"])
+def agent_catalog_file(template_id):
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    t = next((x for x in _uploaded_templates() if x["id"] == template_id), None)
+    if not t:
+        return jsonify({"success": False, "message": "Shablon topilmadi"}), 404
+    return send_file(str(TEMPLATES_DIR / t["file"]), as_attachment=True, download_name=t["file"])
+
+
+@app.route("/api/agent/catalog/restore", methods=["POST"])
+def agent_catalog_restore():
+    """Pi zaxirasidan promokod va shablonlarni qaytaradi. Serverda borlariga tegmaydi."""
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    try:
+        body = json.loads(request.form.get("catalog", "{}"))
+    except Exception:
+        return jsonify({"success": False, "message": "catalog JSON noto'g'ri"}), 400
+    promos_added = catalog.merge_promos(body.get("promos") or {})
+    templates = _load_templates()
+    for t in templates:
+        t.pop("file_exists", None)
+        t.pop("preview", None)
+    have = {t["id"] for t in templates}
+    added = 0
+    for t in body.get("templates") or []:
+        tid = str(t.get("id", ""))
+        up = request.files.get(f"file_{tid}")
+        fname = secure_filename(str(t.get("file", "")))
+        if not tid or tid in have or not up or not fname:
+            continue
+        TEMPLATES_DIR.mkdir(exist_ok=True)
+        up.save(str(TEMPLATES_DIR / fname))
+        t["file"] = fname
+        templates.append(t)
+        have.add(tid)
+        added += 1
+    if added:
+        _save_templates(templates)
+        threading.Thread(target=_warm_previews, daemon=True).start()
+    if added or promos_added:
+        logger.warning(f"Pi zaxirasidan tiklandi: {added} ta shablon, {promos_added} ta promokod")
+    return jsonify({"success": True, "templates": added, "promos": promos_added})
 
 
 if __name__ == "__main__":

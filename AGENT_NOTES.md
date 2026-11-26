@@ -20,6 +20,27 @@ Bir faylni ikki agent bir vaqtda tahrirlamasin — "Hozir kim nima ustida" jadva
 
 ---
 
+## Claude — 2026-11-26: Admin panel (logo bosilganda) — shablonlar va promokodlar
+Branch: `feat/admin-panel` (`origin/main` asosida).
+- **Logo (`#brandBtn`) bir marta bosilsa admin panel ochiladi** (oldin 5 marta bosish edi). Parol (`ADMIN_TOKEN`)
+  so'raladi, `localStorage` da saqlanadi, "Chiqish" bilan o'chadi. Ikki bo'lim: Shablonlar | Promokodlar.
+- **Shablonlar har qanday formatda yuklanadi**: PDF/DOCX/PNG/JPG o'zicha; boshqa rasmlar → PNG; DOC/ODT/RTF/TXT/
+  XLSX/PPTX… → PDF (LibreOffice). Sahifalar soni endi DOCX uchun ham to'g'ri.
+- **Har shablon rasm sifatida ko'rinadi**: `catalog.py` 1-sahifani JPG ga chizadi (`pypdfium2`; DOCX — LibreOffice,
+  u yo'q joyda matn varaqqa chiziladi). `GET /api/templates/<id>/preview.jpg`, `/api/templates` da `preview` maydoni.
+  Rasm admin panelda ham, mijozning "Tayyor shablonlar" ro'yxatida ham. Server yonganda fonda oldindan tayyorlanadi.
+- **Promokodlar admin paneldan**: `GET/POST /api/admin/promos`, `DELETE /api/admin/promos/<code>` (X-Admin-Token).
+  Kod (bo'sh bo'lsa avtomatik), chegirma %, necha marta, necha kun, izoh. `data/promo_codes.json` da.
+  `PROMO_CODES` env ham ishlayveradi (panelda "server" belgisi bilan, o'chirib bo'lmaydi). Muddat tekshiruvi qo'shildi.
+- **Render diski vaqtinchalik** — shuning uchun admin yuklagan shablonlar va promokodlar ham Pi'ga zaxiralanadi:
+  `GET /api/agent/catalog`, `/api/agent/catalog/file/<id>`, `POST /api/agent/catalog/restore`;
+  `pi_agent.py` → `sync_catalog()` (`~/.smart_printchi_backup/catalog.json` + `templates/`).
+- `requirements.txt`: `pypdfium2`. Pi'da agentni yangilash kerak (`git pull` + `systemctl restart printchi-agent`).
+- Sinov (lokal, scratch nusxada): 401 parolsiz · PDF 2 bet/WEBP yuklandi va rasmi chiqdi · TXT/ODT LibreOffice'siz aniq xato ·
+  promokod yaratish/takror/50% qo'llash/o'chirish · katalog zaxira → tiklash (idempotent) · brauzerda kompyuter va telefon.
+
+---
+
 ## Claude — 2026-11-15: Yangi UI "Bento + Chat" (Asilbek qarori: bundan buyon shu UI)
 ⚠️ **Antigravity: frontendni o'zgartirishdan oldin `DESIGN.md` ni o'qing.** Eski Tailwind/SweetAlert UI butunlay almashtirildi.
 - `public/index.html`, `public/styles.css`, `public/app.js` qaytadan yozildi (tashqi kutubxonalarsiz, faqat DM Sans shrifti).

@@ -20,7 +20,7 @@
   <div class="app-col">
     <div class="app" id="app">
       <header class="topbar">
-        <button class="brand" id="brandBtn" type="button" aria-label="Smart Printchi, bosh sahifa">
+        <button class="brand" id="brandBtn" type="button" aria-label="Printchi — admin panelni ochish">
           <span class="brand-mark" aria-hidden="true"><i class="ph ph-printer"></i></span>
           <span>
             <p class="brand-name">Printchi</p>
@@ -247,24 +247,54 @@
 </div>
 
 <div class="overlay" id="adminOverlay" hidden>
-  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="adminTitle">
+  <section class="sheet admin-sheet" role="dialog" aria-modal="true" aria-labelledby="adminTitle">
     <span class="grabber" aria-hidden="true"></span>
     <div class="sheet-head">
-      <h2 class="sheet-title" id="adminTitle">Admin: shablonlar</h2>
-      <button class="link-btn" id="adminClose" type="button">Yopish</button>
+      <h2 class="sheet-title" id="adminTitle">Admin panel</h2>
+      <span class="admin-head-actions">
+        <button class="link-btn" id="adminLogout" type="button" hidden>Chiqish</button>
+        <button class="link-btn" id="adminClose" type="button">Yopish</button>
+      </span>
     </div>
+
     <form class="form tile" id="adminTokenForm">
-      <label>Admin paroli (ADMIN_TOKEN)<input class="field" id="adminToken" type="password" autocomplete="current-password"></label>
-      <button class="btn-dark" type="submit">Saqlash</button>
+      <p class="admin-lock-text">Shablon yuklash va promokod yaratish uchun admin parolini kiriting.</p>
+      <label>Admin paroli<input class="field" id="adminToken" type="password" autocomplete="current-password" required></label>
+      <button class="btn-dark" type="submit">Kirish</button>
     </form>
-    <form class="form tile" id="adminUpload">
-      <label>Nomi<input class="field" name="name" required placeholder="Masalan: Kurs ishi yuzi"></label>
-      <label>Tavsif<input class="field" name="description" placeholder="Qisqa izoh"></label>
-      <label>Bir bet narxi (so‘m)<input class="field" name="price_per_page" type="number" min="0" step="50" value="250"></label>
-      <label>Fayl (PDF yoki DOCX)<input class="field" name="file" type="file" accept=".pdf,.docx" required></label>
-      <button class="btn-dark" type="submit">Shablonni yuklash</button>
-    </form>
-    <div class="admin-list" id="adminList"></div>
+
+    <div id="adminBody" hidden>
+      <div class="seg admin-tabs" role="group" aria-label="Admin bo‘limlari">
+        <button type="button" data-admin-tab="templates" aria-pressed="true">Shablonlar</button>
+        <button type="button" data-admin-tab="promos" aria-pressed="false">Promokodlar</button>
+      </div>
+
+      <div class="admin-pane" id="adminTemplates">
+        <form class="form tile" id="adminUpload">
+          <label>Nomi<input class="field" name="name" required maxlength="80" placeholder="Masalan: Kurs ishi yuzi"></label>
+          <label>Tavsif<input class="field" name="description" maxlength="200" placeholder="Qisqa izoh"></label>
+          <label>Bir bet narxi (so‘m)<input class="field" name="price_per_page" type="number" min="0" step="50" value="250"></label>
+          <label>Fayl (PDF, Word, rasm yoki boshqa hujjat)<input class="field" name="file" id="adminFile" type="file" required></label>
+          <button class="btn-dark" type="submit" id="adminUploadBtn">Shablonni yuklash</button>
+        </form>
+        <div class="admin-tpl-grid" id="adminList"></div>
+      </div>
+
+      <div class="admin-pane" id="adminPromos" hidden>
+        <form class="form tile" id="promoCreate" autocomplete="off">
+          <label>Kod (bo‘sh qoldirsangiz o‘zi yaratadi)<input class="field mono" name="code" maxlength="40" placeholder="Masalan: TALABA50" autocapitalize="characters" spellcheck="false"></label>
+          <div class="row3">
+            <label>Chegirma, %<input class="field" name="percent" type="number" min="1" max="100" value="100" required></label>
+            <label>Necha marta<input class="field" name="max_uses" type="number" min="0" value="1" title="0 — cheksiz"></label>
+            <label>Necha kun<input class="field" name="days" type="number" min="0" value="0" title="0 — muddatsiz"></label>
+          </div>
+          <label>Izoh (ixtiyoriy)<input class="field" name="note" maxlength="80" placeholder="Kimga / nima uchun"></label>
+          <p class="admin-hint">0 — cheklovsiz. 100% chegirmada buyurtma to‘lovsiz chop etiladi.</p>
+          <button class="btn-dark" type="submit">Promokod yaratish</button>
+        </form>
+        <div class="admin-list" id="promoList"></div>
+      </div>
+    </div>
   </section>
 </div>
 

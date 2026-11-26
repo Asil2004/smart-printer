@@ -607,6 +607,66 @@ def sync_backup(server_boot_id: str):
                       "saved_at": time.time()})
 
 
+def sync_catalog(server_boot_id: str):
+    """Admin yuklagan shablonlar va promokodlarni Pi'ga nusxalaydi; Render qayta yongan bo'lsa — qaytaradi."""
+    cat_file = BACKUP_DIR / "catalog.json"
+    tdir = BACKUP_DIR / "templates"
+    tdir.mkdir(parents=True, exist_ok=True)
+    try:
+        saved = json.loads(cat_file.read_text(encoding="utf-8"))
+    except Exception:
+        saved = {}
+
+    if saved.get("boot_id") and saved["boot_id"] != server_boot_id and (saved.get("promos") or saved.get("templates")):
+        handles, files = [], {}
+        try:
+            for t in saved.get("templates", []):
+                f = tdir / t.get("file", "")
+                if t.get("file") and f.exists():
+                    h = open(f, "rb")
+                    handles.append(h)
+                    files[f"file_{t['id']}"] = (t["file"], h)
+            r = cloud.post(f"{CLOUD_URL}/api/agent/catalog/restore",
+                           data={"catalog": json.dumps(saved, ensure_ascii=False)},
+                           files=files or None, timeout=(15, 300))
+            if r.ok:
+                b = r.json()
+                logger.info(f"♻️ Katalog tiklandi: {b.get('templates', 0)} shablon, {b.get('promos', 0)} promokod")
+            elif r.status_code != 404:          # 404 — server eski versiya
+                logger.error(f"Katalogni tiklash muvaffaqiyatsiz: HTTP {r.status_code}")
+                return
+        finally:
+            for h in handles:
+                h.close()
+
+    r = cloud.get(f"{CLOUD_URL}/api/agent/catalog", timeout=15)
+    if not r.ok:
+        return
+    body = r.json()
+    keep = set()
+    for t in body.get("templates", []):
+        f = tdir / t.get("file", "")
+        if not t.get("file"):
+            continue
+        keep.add(f.name)
+        if not f.exists():
+            fr = cloud.get(f"{CLOUD_URL}/api/agent/catalog/file/{t['id']}", timeout=(15, 300), stream=True)
+            if fr.ok:
+                tmp = f.with_suffix(f.suffix + ".part")
+                with open(tmp, "wb") as out:
+                    for chunk in fr.iter_content(65536):
+                        out.write(chunk)
+                tmp.replace(f)
+    for f in tdir.iterdir():
+        if f.name not in keep:
+            f.unlink(missing_ok=True)
+    tmp = cat_file.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"boot_id": body.get("boot_id", server_boot_id), "promos": body.get("promos", {}),
+                               "templates": body.get("templates", []), "saved_at": time.time()},
+                              ensure_ascii=False), encoding="utf-8")
+    tmp.replace(cat_file)
+
+
 def heartbeat_and_backup_loop():
     last_backup = 0.0
     warned = False
@@ -618,6 +678,10 @@ def heartbeat_and_backup_loop():
             if info.get("backup_enabled") and info.get("boot_id") and time.time() - last_backup > BACKUP_INTERVAL:
                 last_backup = time.time()
                 sync_backup(info["boot_id"])
+                try:
+                    sync_catalog(info["boot_id"])
+                except Exception as e:
+                    logger.debug(f"Katalog zaxirasi xatosi: {e}")
             elif r.ok and not info.get("backup_enabled") and not warned:
                 warned = True
                 logger.warning("Zaxira o'chiq: Render'da AGENT_TOKEN o'rnatilmagan")
