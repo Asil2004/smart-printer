@@ -16,6 +16,7 @@ except ImportError:
 import threading
 import subprocess
 import tempfile
+import mimetypes
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from werkzeug.utils import secure_filename
@@ -61,6 +62,9 @@ PRICE_PER_PAGE_COLOR = 400   # Rangli bir sahifa
 MAX_COPIES = config.MAX_COPIES  # bitta buyurtmada eng ko'p nusxa
 FILE_RETENTION_SECONDS = 1800  # 30 daqiqadan so'ng fayllarni o'chirish
 
+# Windows ro'yxatida .js ba'zan text/plain — service worker bunday faylni rad etadi
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 app = Flask(__name__, template_folder="templates", static_folder="public", static_url_path="")
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
@@ -1069,6 +1073,31 @@ def apply_promo(order_id):
         confirm_order(order["id"], f"PROMO:{code}")
     return jsonify({"success": True, "amount": amount, "amount_before": original,
                     "percent": promo["percent"], "free": free, "status": order["status"]})
+
+
+_login_fails: dict = {}          # ip -> [vaqtlar]
+
+
+@app.route("/api/admin/login", methods=["POST"])
+def admin_login():
+    """Admin panel: login + parol → 30 kunlik sessiya kaliti (X-Admin-Token sifatida yuboriladi)."""
+    if not payments.admin_login_configured():
+        return jsonify({"success": False, "message": "Serverda ADMIN_PASSWORD (yoki ADMIN_TOKEN) sozlanmagan"}), 503
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    now = time.time()
+    fails = [t for t in _login_fails.get(ip, []) if now - t < 900]
+    _login_fails[ip] = fails
+    if len(fails) >= 8:
+        return jsonify({"success": False, "message": "Juda ko'p noto'g'ri urinish. 15 daqiqadan so'ng qayta urinib ko'ring."}), 429
+    body = request.get_json(silent=True) or {}
+    if not payments.check_admin_credentials(body.get("login", ""), body.get("password", "")):
+        fails.append(now)
+        time.sleep(0.5)
+        logger.warning(f"Admin panel: noto'g'ri login/parol ({ip})")
+        return jsonify({"success": False, "message": "Login yoki parol noto'g'ri"}), 401
+    _login_fails.pop(ip, None)
+    logger.info(f"Admin panelga kirildi ({ip})")
+    return jsonify({"success": True, **payments.issue_admin_session()})
 
 
 @app.route("/api/admin/promos", methods=["GET", "POST"])

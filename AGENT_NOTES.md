@@ -39,6 +39,14 @@ Branch: `feat/admin-panel` (`origin/main` asosida).
 - Sinov (lokal, scratch nusxada): 401 parolsiz · PDF 2 bet/WEBP yuklandi va rasmi chiqdi · TXT/ODT LibreOffice'siz aniq xato ·
   promokod yaratish/takror/50% qo'llash/o'chirish · katalog zaxira → tiklash (idempotent) · brauzerda kompyuter va telefon.
 
+- **Login + parol** (yangilanish): `POST /api/admin/login` {login, password} → 30 kunlik imzolangan sessiya kaliti
+  (`s1.<muddat>.<hmac>`), `X-Admin-Token` sifatida yuboriladi. Env: `ADMIN_LOGIN` (standart `admin`), `ADMIN_PASSWORD`
+  (bo'lmasa `ADMIN_TOKEN`). Parol almashsa barcha sessiyalar bekor bo'ladi. 15 daqiqada 8 xato urinishdan keyin 429.
+  Eski `ADMIN_TOKEN` ham ishlayveradi (`panel.html`, API).
+- **PWA**: `public/manifest.webmanifest`, `public/sw.js` (sahifa: avval tarmoq, oflaynda kesh; `/api/` keshlanmaydi),
+  `public/icons/`, sarlavhada "o'rnatish" tugmasi (`beforeinstallprompt`). Headless Chrome'da: SW faol,
+  installability xatosi yo'q, oflaynda ochiladi. `app.py` da `.js`/`.webmanifest` MIME turlari aniq berildi.
+
 ---
 
 ## Claude — 2026-11-15: Yangi UI "Bento + Chat" (Asilbek qarori: bundan buyon shu UI)

@@ -7,6 +7,13 @@
 <script>try { var t = localStorage.getItem("printchi-theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <meta name="description" content="Smart Printchi: telefondan hujjat chop etish kioski. Fayl yuklang, to‘lang, qog‘ozni oling.">
 <title>Smart Printchi · Chop etish</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Printchi">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
@@ -28,6 +35,7 @@
           </span>
         </button>
         <div class="top-actions">
+          <button class="round" id="installBtn" type="button" aria-label="Ilovani o‘rnatish" title="Ilovani o‘rnatish" hidden><i class="ph ph-download-simple" aria-hidden="true"></i></button>
           <button class="round theme-btn" id="themeBtn" type="button" aria-label="Tungi rejim" aria-pressed="false"><i class="ph ph-moon" aria-hidden="true"></i><i class="ph ph-sun" aria-hidden="true"></i></button>
           <button class="link-btn" id="navBtn" type="button">Shablonlar →</button>
         </div>
@@ -258,9 +266,10 @@
     </div>
 
     <form class="form tile" id="adminTokenForm">
-      <p class="admin-lock-text">Shablon yuklash va promokod yaratish uchun admin parolini kiriting.</p>
-      <label>Admin paroli<input class="field" id="adminToken" type="password" autocomplete="current-password" required></label>
-      <button class="btn-dark" type="submit">Kirish</button>
+      <p class="admin-lock-text">Shablon yuklash va promokod yaratish uchun admin sifatida kiring.</p>
+      <label>Login<input class="field" id="adminLogin" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label>Parol<input class="field" id="adminToken" name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn-dark" type="submit" id="adminLoginBtn">Kirish</button>
     </form>
 
     <div id="adminBody" hidden>

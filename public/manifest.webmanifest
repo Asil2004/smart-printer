@@ -1,0 +1,22 @@
+{
+  "name": "Smart Printchi",
+  "short_name": "Printchi",
+  "description": "Telefondan hujjat chop etish: fayl yuklang, to‘lang, qog‘ozni kioskdan oling.",
+  "lang": "uz",
+  "id": "./",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3F4F1",
+  "theme_color": "#F3F4F1",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Shablonlar", "url": "./?view=templates", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

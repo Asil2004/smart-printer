@@ -815,19 +815,23 @@
   function openAdmin() {
     $('adminOverlay').hidden = false;
     $('adminToken').value = '';
-    if (adminToken()) unlockAdmin(); else showAdminLock();
+    try { $('adminLogin').value = localStorage.getItem('PRINTCHI_ADMIN_LOGIN') || ''; } catch (e) { /* */ }
+    const t = adminToken();
+    // Sessiya muddati o'tgan bo'lsa — so'rov yubormasdan kirish oynasi
+    const exp = /^s1\.(\d+)\./.exec(t);
+    if (t && (!exp || +exp[1] * 1000 > Date.now())) unlockAdmin(); else { setAdminToken(''); showAdminLock(); }
   }
 
   function showAdminLock() {
     $('adminTokenForm').hidden = false;
     $('adminBody').hidden = true;
     $('adminLogout').hidden = true;
-    setTimeout(() => $('adminToken').focus(), 60);
+    setTimeout(() => ($('adminLogin').value ? $('adminToken') : $('adminLogin')).focus(), 60);
   }
 
   async function unlockAdmin(fromForm = false) {
     const { status, data } = await getJSON('/api/admin/promos', { headers: adminHdr() }).catch(() => ({ status: 0, data: {} }));
-    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Sessiya tugagan. Qaytadan kiring.', 'err'); return; }
     if (!data.success) { showAdminLock(); toast('Server bilan aloqa yo‘q. Birozdan so‘ng urinib ko‘ring.', 'err'); return; }
     $('adminTokenForm').hidden = true;
     $('adminBody').hidden = false;
@@ -865,7 +869,7 @@
     btn.textContent = 'Yuklanmoqda… rasm tayyorlanmoqda';
     try {
       const { status, data } = await getJSON('/api/admin/templates/upload', { method: 'POST', body: fd, headers: adminHdr() }).catch(() => ({ data: {} }));
-      if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
+      if (status === 401) { setAdminToken(''); showAdminLock(); toast('Sessiya tugagan. Qaytadan kiring.', 'err'); return; }
       if (!data.success) { toast(data.message || 'Yuklab bo‘lmadi', 'err'); return; }
       toast(`“${data.template.name}” qo‘shildi (${data.template.pages} bet)`);
       e.target.reset();
@@ -880,7 +884,7 @@
     const t = S.templates.find((x) => x.id === id);
     if (!t || !window.confirm(`«${t.name}» shablonini o‘chirasizmi?`)) return;
     const { status, data } = await getJSON(`/api/admin/templates/delete/${encodeURIComponent(id)}`, { method: 'DELETE', headers: adminHdr() }).catch(() => ({ data: {} }));
-    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Sessiya tugagan. Qaytadan kiring.', 'err'); return; }
     if (!data.success) { toast(data.message || 'O‘chirib bo‘lmadi', 'err'); return; }
     toast('O‘chirildi');
     await loadTemplates();
@@ -924,7 +928,7 @@
     const { status, data } = await getJSON('/api/admin/promos', {
       method: 'POST', body: JSON.stringify(body), headers: { ...adminHdr(), 'Content-Type': 'application/json' },
     }).catch(() => ({ data: {} }));
-    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Admin paroli noto‘g‘ri', 'err'); return; }
+    if (status === 401) { setAdminToken(''); showAdminLock(); toast('Sessiya tugagan. Qaytadan kiring.', 'err'); return; }
     if (!data.success) { toast(data.message || 'Yaratib bo‘lmadi', 'err'); return; }
     const copied = await copyText(data.promo.code);
     toast(`Promokod ${data.promo.code} yaratildi${copied ? ' va nusxalandi' : ''}`);
@@ -1003,10 +1007,21 @@
     $('resultBtn').addEventListener('click', () => { $('resultOverlay').hidden = true; refreshPrinters(); });
 
     $('adminClose').addEventListener('click', () => { $('adminOverlay').hidden = true; });
-    $('adminTokenForm').addEventListener('submit', (e) => {
+    $('adminTokenForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      setAdminToken($('adminToken').value.trim());
-      unlockAdmin(true);
+      const btn = $('adminLoginBtn');
+      btn.disabled = true;
+      try {
+        const { status, data } = await getJSON('/api/admin/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login: $('adminLogin').value.trim(), password: $('adminToken').value }),
+        }).catch(() => ({ status: 0, data: {} }));
+        if (!data.success) { toast(data.message || (status ? 'Kirib bo‘lmadi' : 'Server bilan aloqa yo‘q'), 'err'); $('adminToken').select(); return; }
+        try { localStorage.setItem('PRINTCHI_ADMIN_LOGIN', $('adminLogin').value.trim()); } catch (er) { /* */ }
+        $('adminToken').value = '';
+        setAdminToken(data.token);
+        await unlockAdmin(true);
+      } finally { btn.disabled = false; }
     });
     $('adminLogout').addEventListener('click', () => { setAdminToken(''); showAdminLock(); });
     document.querySelectorAll('[data-admin-tab]').forEach((b) => b.addEventListener('click', () => setAdminTab(b.dataset.adminTab)));
@@ -1028,9 +1043,34 @@
     });
   }
 
+  // ── PWA: o'rnatish va oflayn qobiq ─────────────────────
+  let installEvt = null;
+  function setupPwa() {
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* PWA ixtiyoriy */ });
+    }
+    const btn = $('installBtn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installEvt = e;
+      btn.hidden = false;
+    });
+    btn.addEventListener('click', async () => {
+      if (!installEvt) return;
+      installEvt.prompt();
+      const { outcome } = await installEvt.userChoice.catch(() => ({}));
+      installEvt = null;
+      btn.hidden = true;
+      if (outcome === 'accepted') toast('Printchi ilova sifatida o‘rnatildi');
+    });
+    window.addEventListener('appinstalled', () => { btn.hidden = true; });
+  }
+
   // ── Ishga tushirish ─────────────────────────────────────
   async function init() {
     bind();
+    setupPwa();
+    if (new URLSearchParams(location.search).get('view') === 'templates') S.view = 'templates';
     render();
     if (location.hash === '#admin') openAdmin();
     try { if (AppConfig.fetchLatestLiveUrl && AppConfig.shouldDiscoverUrl()) await AppConfig.fetchLatestLiveUrl(); } catch (e) { /* */ }

@@ -42,6 +42,10 @@ def _env_bool(name: str, default: bool) -> bool:
 
 REQUIRE_PAYMENT    = _env_bool("REQUIRE_PAYMENT_VERIFICATION", True)
 ADMIN_TOKEN        = os.environ.get("ADMIN_TOKEN", "").strip()
+# Admin panelga kirish: login + parol. ADMIN_PASSWORD bo'lmasa — parol sifatida ADMIN_TOKEN ishlatiladi.
+ADMIN_LOGIN        = os.environ.get("ADMIN_LOGIN", "admin").strip()
+ADMIN_PASSWORD     = os.environ.get("ADMIN_PASSWORD", "").strip() or ADMIN_TOKEN
+ADMIN_SESSION_DAYS = int(os.environ.get("ADMIN_SESSION_DAYS", "30") or 30)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 CLICK_SERVICE_ID   = os.environ.get("CLICK_SERVICE_ID", "").strip()
@@ -169,11 +173,47 @@ def count_selected_pages(page_ranges: str, total_pages: int) -> int:
 # ══════════════════════════════════════════════════════════
 # Admin autentifikatsiyasi
 # ══════════════════════════════════════════════════════════
-def is_admin(req) -> bool:
-    if not ADMIN_TOKEN:
+def admin_login_configured() -> bool:
+    return bool(ADMIN_LOGIN and ADMIN_PASSWORD)
+
+
+def _session_key() -> bytes:
+    # Parol yoki token almashsa — barcha eski sessiyalar o'z-o'zidan bekor bo'ladi
+    return hashlib.sha256(f"printchi-admin|{ADMIN_LOGIN}|{ADMIN_PASSWORD}|{ADMIN_TOKEN}".encode()).digest()
+
+
+def check_admin_credentials(login: str, password: str) -> bool:
+    if not admin_login_configured():
         return False
+    ok_login = hmac.compare_digest(str(login).strip().lower().encode(), ADMIN_LOGIN.lower().encode())
+    ok_pass = hmac.compare_digest(str(password).encode(), ADMIN_PASSWORD.encode())
+    return ok_login and ok_pass
+
+
+def issue_admin_session() -> dict:
+    exp = int(time.time()) + ADMIN_SESSION_DAYS * 86400
+    sig = hmac.new(_session_key(), f"s1.{exp}".encode(), hashlib.sha256).hexdigest()
+    return {"token": f"s1.{exp}.{sig}", "expires_at": exp}
+
+
+def _session_valid(token: str) -> bool:
+    parts = token.split(".")
+    if len(parts) != 3 or parts[0] != "s1" or not parts[1].isdigit() or not admin_login_configured():
+        return False
+    if int(parts[1]) < time.time():
+        return False
+    sig = hmac.new(_session_key(), f"s1.{parts[1]}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig.encode(), parts[2].encode())
+
+
+def is_admin(req) -> bool:
+    """X-Admin-Token: login/parol bilan olingan sessiya kaliti yoki to'g'ridan-to'g'ri ADMIN_TOKEN."""
     token = req.headers.get("X-Admin-Token", "") or req.args.get("admin_token", "")
-    return hmac.compare_digest(token.encode(), ADMIN_TOKEN.encode())
+    if not token:
+        return False
+    if token.startswith("s1."):
+        return _session_valid(token)
+    return bool(ADMIN_TOKEN) and hmac.compare_digest(token.encode(), ADMIN_TOKEN.encode())
 
 
 # ══════════════════════════════════════════════════════════
