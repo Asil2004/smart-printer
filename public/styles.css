@@ -562,3 +562,11 @@ i.ph { font-size: 18px; }
 .stepper .copies-field:focus { outline: none; border-color: var(--ink); background: var(--tile); }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ── Promokod (to'lov oynasi) ── */
+.promo { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.promo .field { min-width: 0; text-transform: uppercase; font-family: var(--mono, ui-monospace, monospace); }
+.promo .field::placeholder { text-transform: none; font-family: inherit; }
+.promo .btn-ghost { width: auto; min-height: 44px; padding: 0 20px; }
+.promo.applied .field { border-color: var(--ok); color: var(--ok); }
+.amount-was { text-decoration: line-through; opacity: .55; font-size: .5em; margin-right: 8px; }

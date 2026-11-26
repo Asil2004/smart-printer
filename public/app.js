@@ -594,6 +594,7 @@
     $('payAmount').textContent = '... so‘m';
     $('paySummary').textContent = 'Buyurtma tayyorlanmoqda…';
     $('payClaim').disabled = true;
+    resetPromo();
     if (src.kind !== 'template' && S.file && S.file.size > 2 * 1024 * 1024) {
       setPayStatus('', `Fayl serverga yuklanmoqda (${(S.file.size / (1024 * 1024)).toFixed(1)} MB)…`);
     } else {
@@ -629,12 +630,65 @@
         ? `Shablon: ${src.template.name}`
         : `${pageCount} bet × ${S.copies} nusxa · ${S.color === 'color' ? 'rangli' : 'oq-qora'}`;
       $('payClaim').disabled = false;
+      $('promoBtn').disabled = false;
       setPayStatus('', 'To‘lov kutilmoqda');
       renderPayPanel();
       startPolling();
     } catch (e) {
       closePay();
       toast(e.message || 'Server bilan aloqa yo‘q.', 'err');
+    }
+  }
+
+  // ── Promokod ──
+  function resetPromo() {
+    const f = $('promoForm');
+    f.classList.remove('applied');
+    $('promoInput').value = '';
+    $('promoInput').disabled = false;
+    $('promoBtn').disabled = true;
+    $('promoBtn').textContent = 'Qo‘llash';
+  }
+
+  async function applyPromo(e) {
+    e.preventDefault();
+    if (!S.order) return;
+    const code = $('promoInput').value.trim();
+    if (!code) { $('promoInput').focus(); return; }
+    $('promoBtn').disabled = true;
+    try {
+      const { data } = await getJSON(`/api/order/${S.order.id}/promo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      if (!data || !data.success) {
+        $('promoBtn').disabled = false;
+        setPayStatus('err', (data && data.message) || 'Promokod qabul qilinmadi');
+        return;
+      }
+      S.order.amount = data.amount;
+      $('promoForm').classList.add('applied');
+      $('promoInput').disabled = true;
+      $('promoBtn').textContent = `−${data.percent}%`;
+      const amt = $('payAmount');
+      amt.textContent = '';
+      const was = document.createElement('span');
+      was.className = 'amount-was';
+      was.textContent = money(data.amount_before);
+      amt.append(was, document.createTextNode(money(data.amount)));
+      if (data.free) {
+        $('payClaim').disabled = true;
+        $('payPanel').textContent = '';
+        setPayStatus('ok', 'Promokod qabul qilindi — to‘lov shart emas, chop etilmoqda…');
+        speak('Promokod qabul qilindi. Hujjatingiz chop etilmoqda.');
+      } else {
+        setPayStatus('', `Promokod qabul qilindi: ${money(data.amount)} to‘lang`);
+        renderPayPanel();
+      }
+    } catch (err) {
+      $('promoBtn').disabled = false;
+      toast('Aloqa uzildi. Qayta urinib ko‘ring.', 'err');
     }
   }
 
@@ -851,6 +905,8 @@
 
     document.querySelectorAll('[data-method]').forEach((b) => b.addEventListener('click', () => { S.payMethod = b.dataset.method; renderPayPanel(); }));
     $('payClaim').addEventListener('click', claimPay);
+    $('promoForm').addEventListener('submit', applyPromo);
+    $('promoInput').addEventListener('input', () => { if (S.order && !$('promoForm').classList.contains('applied')) $('promoBtn').disabled = !$('promoInput').value.trim(); });
     $('payCancel').addEventListener('click', cancelPay);
     $('resultBtn').addEventListener('click', () => { $('resultOverlay').hidden = true; refreshPrinters(); });
 

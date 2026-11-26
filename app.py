@@ -885,6 +885,70 @@ def create_pending_order():
                     "verification": "telegram" if payments.telegram_enabled() else "admin"})
 
 
+# ── Promokodlar ───────────────────────────────────────────
+# Render env: PROMO_CODES="TEST0:100:20,YARIM:50"  →  KOD:chegirma_foizi[:eng_ko'p_ishlatish]
+# Kodlar faqat serverda turadi; saytda ham, git'da ham ko'rinmaydi.
+_promo_fails: dict = {}          # ip -> [vaqtlar] (taxmin qilib topishga qarshi)
+PROMO_FAIL_LIMIT = 10            # 10 daqiqada shuncha noto'g'ri urinish
+
+
+def _promo_codes() -> dict:
+    codes = {}
+    for part in os.environ.get("PROMO_CODES", "").split(","):
+        bits = [b.strip() for b in part.split(":")]
+        if not bits[0]:
+            continue
+        try:
+            pct = max(0, min(100, int(bits[1]))) if len(bits) > 1 and bits[1] else 100
+            limit = int(bits[2]) if len(bits) > 2 and bits[2] else 0
+        except ValueError:
+            logger.warning(f"PROMO_CODES dagi noto'g'ri qism o'tkazib yuborildi: {part!r}")
+            continue
+        codes[bits[0].upper()] = {"percent": pct, "max_uses": limit}
+    return codes
+
+
+@app.route("/api/order/<order_id>/promo", methods=["POST"])
+def apply_promo(order_id):
+    """Mijoz promokod kiritdi. Narx 0 bo'lsa — to'lovsiz darhol chop etiladi."""
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    now = time.time()
+    fails = [t for t in _promo_fails.get(ip, []) if now - t < 600]
+    _promo_fails[ip] = fails
+    if len(fails) >= PROMO_FAIL_LIMIT:
+        return jsonify({"success": False, "message": "Juda ko'p urinish. 10 daqiqadan so'ng qayta urinib ko'ring."}), 429
+
+    order = payments.get_order(order_id)
+    if not order:
+        return jsonify({"success": False, "message": "Buyurtma topilmadi"}), 404
+    if order["status"] != "PENDING":
+        return jsonify({"success": False, "message": "Promokodni faqat to'lovdan oldin qo'llash mumkin"}), 409
+    if order.get("promo_code"):
+        return jsonify({"success": False, "message": "Bu buyurtmaga promokod allaqachon qo'llangan"}), 409
+
+    code = str((request.get_json(silent=True) or {}).get("code", "")).strip().upper()[:40]
+    promo = _promo_codes().get(code) if code else None
+    if not promo:
+        fails.append(now)
+        return jsonify({"success": False, "message": "Promokod noto'g'ri"}), 400
+    if promo["max_uses"]:
+        used = sum(1 for o in list(payments.orders.values())
+                   if o.get("promo_code") == code and o.get("status") not in ("EXPIRED", "CANCELLED", "REJECTED"))
+        if used >= promo["max_uses"]:
+            return jsonify({"success": False, "message": "Bu promokodning muddati tugagan"}), 410
+
+    original = int(order.get("amount", 0))
+    amount = original * (100 - promo["percent"]) // 100
+    payments.set_status(order, "PENDING", amount=amount, amount_before_promo=original,
+                        promo_code=code, promo_percent=promo["percent"])
+    logger.info(f"#{order['id']}: promokod {code} (-{promo['percent']}%) {original} → {amount} so'm")
+    free = amount == 0
+    if free:
+        confirm_order(order["id"], f"PROMO:{code}")
+    return jsonify({"success": True, "amount": amount, "amount_before": original,
+                    "percent": promo["percent"], "free": free, "status": order["status"]})
+
+
 @app.route("/api/order/<order_id>/claim", methods=["POST"])
 def claim_order_payment(order_id):
     """Mijoz 'To'ladim' bosdi → adminga Telegramda tasdiq so'rovi ketadi. Chop etmaydi!"""
