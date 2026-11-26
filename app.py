@@ -878,11 +878,78 @@ def create_pending_order():
         order.update(filename=clean_name, saved_path=str(saved_path), pages=pages,
                      total_pages=total, amount=pages * copies * per_page)
 
+    if CARD_AUTO_CONFIRM and order["amount"] > 0:
+        order["base_amount"] = order["amount"]
+        order["amount"] = _unique_amount(order["amount"])
     payments.add_order(order)
     logger.info(f"Yangi buyurtma #{order_id} [{source}] | {order['amount']} so'm")
     return jsonify({"success": True, "order_id": order_id, "amount": order["amount"],
                     "pages": order["pages"], "status": "PENDING",
                     "verification": "telegram" if payments.telegram_enabled() else "admin"})
+
+
+# ── Kartaga o'tkazmani avtomatik tasdiqlash (CardXabar → Pi agenti) ──────
+# Har buyurtmaga 1..99 so'm qo'shiladi: kutayotgan buyurtmalar summasi takrorlanmaydi,
+# shuning uchun kartaga tushgan summa bo'yicha buyurtma aniq topiladi.
+CARD_AUTO_CONFIRM = os.environ.get("CARD_AUTO_CONFIRM", "0").strip().lower() in ("1", "true", "yes")
+CARD_LAST4 = os.environ.get("CARD_LAST4", "").strip()       # masalan 0424
+PAYMENT_MATCH_WINDOW_S = 45 * 60                              # buyurtmadan keyin shuncha vaqt ichida
+_seen_payments: dict = {}                                     # xabar id -> vaqt (takrorni oldini olish)
+_amount_lock = threading.Lock()
+
+
+def _awaiting(o: dict) -> bool:
+    return o.get("status") in ("PENDING", "CLAIMED", "EXPIRED") and \
+        time.time() - o.get("created_at", 0) < PAYMENT_MATCH_WINDOW_S
+
+
+def _unique_amount(base: int) -> int:
+    import random
+    with _amount_lock:
+        taken = {o.get("amount") for o in list(payments.orders.values()) if _awaiting(o)}
+        offsets = list(range(1, 100))
+        random.shuffle(offsets)
+        for k in offsets:
+            if base + k not in taken:
+                return base + k
+    return base + 100 + random.randint(0, 899)   # 99 tadan ko'p bir vaqtda kutsa (amalda bo'lmaydi)
+
+
+@app.route("/api/agent/payment-seen", methods=["POST"])
+def agent_payment_seen():
+    """Pi agenti kartaga kirimni ko'rdi (CardXabar). Summa bo'yicha buyurtmani topib tasdiqlaydi."""
+    if not _agent_token_valid(request):
+        return _agent_denied()
+    data = request.get_json(silent=True) or {}
+    msg_id = str(data.get("msg_id", ""))
+    try:
+        amount = int(round(float(data.get("amount", 0))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "amount noto'g'ri"}), 400
+    card = str(data.get("card_last4", ""))
+    if msg_id and msg_id in _seen_payments:
+        return jsonify({"success": True, "result": "duplicate"})
+    if msg_id:
+        _seen_payments[msg_id] = time.time()
+        for k in [k for k, t in _seen_payments.items() if time.time() - t > 86400]:
+            _seen_payments.pop(k, None)
+    if CARD_LAST4 and card and card != CARD_LAST4:
+        return jsonify({"success": True, "result": "other_card"})
+
+    with payments._lock:
+        matches = [o for o in payments.orders.values() if _awaiting(o) and o.get("amount") == amount]
+    if len(matches) == 1:
+        o = matches[0]
+        payments.set_status(o, o["status"], paid_amount=amount, paid_msg_id=msg_id)
+        msg = confirm_order(o["id"], f"CARD_AUTO:{card or '?'}")
+        logger.info(f"Kartaga {amount} so'm tushdi → #{o['id']} avtomatik tasdiqlandi ({msg})")
+        return jsonify({"success": True, "result": "confirmed", "order_id": o["id"]})
+
+    reason = "mos buyurtma yo'q" if not matches else f"{len(matches)} ta buyurtma mos keldi"
+    logger.warning(f"Kartaga {amount} so'm tushdi, lekin {reason}")
+    payments.tg_send(f"💳 Kartaga <b>{amount} so'm</b> tushdi (…{card}), lekin {reason}.\n"
+                     f"Kerak bo'lsa buyurtmani qo'lda tasdiqlang.")
+    return jsonify({"success": True, "result": "unmatched", "reason": reason})
 
 
 # ── Promokodlar ───────────────────────────────────────────
@@ -938,7 +1005,10 @@ def apply_promo(order_id):
             return jsonify({"success": False, "message": "Bu promokodning muddati tugagan"}), 410
 
     original = int(order.get("amount", 0))
-    amount = original * (100 - promo["percent"]) // 100
+    base = int(order.get("base_amount", original))
+    amount = base * (100 - promo["percent"]) // 100
+    if CARD_AUTO_CONFIRM and amount > 0:
+        amount = _unique_amount(amount)     # kartaga tushgan summa bo'yicha topilishi uchun
     payments.set_status(order, "PENDING", amount=amount, amount_before_promo=original,
                         promo_code=code, promo_percent=promo["percent"])
     logger.info(f"#{order['id']}: promokod {code} (-{promo['percent']}%) {original} → {amount} so'm")
@@ -959,8 +1029,9 @@ def claim_order_payment(order_id):
         payments.set_status(order, "CLAIMED", claimed_at=time.time(),
                             claimed_method=(request.get_json(silent=True) or {}).get("method", ""))
         payments.notify_claim(order)
-        if payments.DEMO_AUTO_CONFIRM or not payments.telegram_enabled():
-            # Agar Telegram sozlanmagan bo'lsa yoki test/demo rejimida bo'lsa: 1 soniyadan keyin avtomatik tasdiqlanadi va darhol chop etiladi!
+        if payments.DEMO_AUTO_CONFIRM:
+            # Faqat demo rejimida avtomatik tasdiq. Telegram sozlanmagan bo'lsa ham to'lov TEKSHIRILMASDAN
+            # tasdiqlanmaydi: kartaga tushgan summa (CARD_AUTO_CONFIRM) yoki admin tasdig'i kutiladi.
             threading.Timer(1.0, confirm_order, args=(order["id"], "AUTO_CONFIRM")).start()
     return jsonify({"success": True, "status": order["status"]})
 
